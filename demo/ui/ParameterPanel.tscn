@@ -13,7 +13,6 @@
 [ext_resource type="PackedScene" path="res://demo/ui/rows/ReadoutRow.tscn" id="11_readout"]
 
 [node name="ParameterPanel" type="PanelContainer"]
-visible = false
 offset_right = 420.0
 offset_bottom = 600.0
 theme = ExtResource("2_theme")

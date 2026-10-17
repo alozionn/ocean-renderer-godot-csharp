@@ -21,6 +21,7 @@ internal static class Captures
         ["close"] = new[] { 0f, 4, 0, -30, 20 },
         ["close_down"] = new[] { 0f, 7, 0, -62, 40 },
         ["shore"] = new[] { 60f, 10, -110, -15, -50 },
+        ["overview"] = new[] { 0f, 52, -40, -33, -24 }, // the demo's default camera
     };
 
     public static void Place(Camera3D camera, float[] pose)

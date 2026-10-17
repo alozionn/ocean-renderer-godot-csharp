@@ -18,6 +18,13 @@ public static class RingLayout
         return inner * MathF.Pow(outerHalfSize / inner, (ring - linearRings) / (float)(rings - linearRings));
     }
 
+    /// <summary>
+    /// Vertex spacing grows by this fraction of the Chebyshev distance in the geometric rings:
+    /// spacing(d) = max(spacing, d * growth). The surface shader uses it to pick the displacement mip.
+    /// </summary>
+    public static float Growth(int rings = 256, int linearRings = 32, float spacing = 0.25f, float outerHalfSize = 4000f) =>
+        MathF.Pow(outerHalfSize / (linearRings * spacing), 1f / (rings - linearRings)) - 1f;
+
     public static (Vector2[] Positions, int[] Indices) Build(int rings = 256, int linearRings = 32, float spacing = 0.25f, float outerHalfSize = 4000f)
     {
         int side = 2 * rings + 1;

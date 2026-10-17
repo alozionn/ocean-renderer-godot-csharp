@@ -1,9 +1,9 @@
-[gd_scene load_steps=9 format=3]
+[gd_scene format=3 uid="uid://mfttsrf3shb0"]
 
 [ext_resource type="PackedScene" path="res://ocean/ocean.tscn" id="1_ocean"]
 [ext_resource type="PackedScene" path="res://demo/props/rock.tscn" id="2_rock"]
-[ext_resource type="Script" path="res://demo/camera/FreeFlyCamera.cs" id="3_camera"]
-[ext_resource type="Script" path="res://demo/DemoRoot.cs" id="4_root"]
+[ext_resource type="Script" uid="uid://0lvnt7hrdbly" path="res://demo/camera/FreeFlyCamera.cs" id="3_camera"]
+[ext_resource type="Script" uid="uid://tug8igwqcqs3" path="res://demo/DemoRoot.cs" id="4_root"]
 [ext_resource type="PackedScene" path="res://demo/ui/ParameterPanel.tscn" id="5_panel"]
 
 [sub_resource type="Sky" id="Sky_1"]
@@ -16,7 +16,6 @@ ambient_light_source = 3
 reflected_light_source = 2
 tonemap_mode = 3
 tonemap_white = 6.0
-glow_enabled = true
 glow_hdr_threshold = 1.2
 fog_enabled = true
 fog_light_color = Color(0.9, 0.82, 0.76, 1)
@@ -24,28 +23,29 @@ fog_density = 0.0005
 fog_aerial_perspective = 1.0
 fog_sky_affect = 0.0
 
-[node name="Main" type="Node3D"]
+[node name="Main" type="Node3D" unique_id=1841102341]
 
-[node name="WorldEnvironment" type="WorldEnvironment" parent="."]
+[node name="WorldEnvironment" type="WorldEnvironment" parent="." unique_id=1465902609]
 environment = SubResource("Env_1")
 
-[node name="Sun" type="DirectionalLight3D" parent="."]
+[node name="Sun" type="DirectionalLight3D" parent="." unique_id=1027875809]
 transform = Transform3D(1, 0, 0, 0, 0.964, 0.266, 0, -0.266, 0.964, 0, 0, 0)
 
-[node name="Camera" type="Camera3D" parent="."]
-transform = Transform3D(1, 0, 0, 0, 0.970296, 0.241922, 0, -0.241922, 0.970296, 0, 12, 0)
+[node name="Camera" type="Camera3D" parent="." unique_id=1823043338]
+transform = Transform3D(0.913545, 0.221530, -0.341120, 0, 0.838671, 0.544639, 0.406737, -0.497562, 0.766160, 0, 52, -40)
 fov = 70.0
 far = 8000.0
 script = ExtResource("3_camera")
 
-[node name="Rock" parent="." instance=ExtResource("2_rock")]
+[node name="Rock" parent="." unique_id=190835362 instance=ExtResource("2_rock")]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 120, -8, -160)
 
-[node name="Ocean" parent="." instance=ExtResource("1_ocean")]
+[node name="Ocean" parent="." unique_id=1109678040 instance=ExtResource("1_ocean")]
+ConfigPath = "res://demo/presets/ocean_breeze.json"
 
-[node name="UI" type="CanvasLayer" parent="."]
+[node name="UI" type="CanvasLayer" parent="." unique_id=1094145073]
 
-[node name="OceanPanel" parent="UI" instance=ExtResource("5_panel")]
+[node name="OceanPanel" parent="UI" unique_id=877123128 instance=ExtResource("5_panel")]
 anchors_preset = 9
 anchor_bottom = 1.0
 offset_left = 8.0
@@ -55,7 +55,7 @@ offset_bottom = -8.0
 grow_vertical = 2
 Title = "Ocean"
 
-[node name="EnvironmentPanel" parent="UI" instance=ExtResource("5_panel")]
+[node name="EnvironmentPanel" parent="UI" unique_id=694728829 instance=ExtResource("5_panel")]
 anchors_preset = 3
 anchor_left = 1.0
 anchor_top = 1.0
@@ -70,7 +70,7 @@ grow_vertical = 0
 ToggleKey = 4194333
 Title = "Environment"
 
-[node name="DemoRoot" type="Node" parent="."]
+[node name="DemoRoot" type="Node" parent="." unique_id=197240541]
 script = ExtResource("4_root")
 OceanPath = NodePath("../Ocean")
 EnvironmentPath = NodePath("../WorldEnvironment")

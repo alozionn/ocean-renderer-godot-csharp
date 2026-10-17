@@ -7,6 +7,8 @@ internal static class SurfaceUniforms
     public static readonly string[] Slope = { "slope_0", "slope_1", "slope_2" };
     public const string PatchSizes = "patch_sizes";
     public const string TexelSizes = "texel_sizes";
+    public const string MeshSpacing = "mesh_spacing";
+    public const string MeshGrowth = "mesh_growth";
     public const string FoamNear = "foam_near";
     public const string FoamFar = "foam_far";
     public const string FoamNearRect = "foam_near_rect";

@@ -31,7 +31,7 @@ public partial class ParameterPanel : PanelContainer
             return;
         }
         MouseFilter = MouseFilterEnum.Stop;
-        GetNode<Label>("Box/Title").Text = $"{Title}  ({ToggleKey})";
+        GetNode<Label>("Box/Title").Text = $"{Title}  ({ToggleKey} hides)";
     }
 
     public override void _UnhandledKeyInput(InputEvent e)

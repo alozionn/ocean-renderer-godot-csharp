@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using Godot;
 using Ocean.Core.Config;
+using Ocean.Core.Mesh;
 using Ocean.Core.Parameters;
 using Ocean.Core.Scheduling;
 using Ocean.Foam;
@@ -64,6 +65,8 @@ public partial class Ocean : Node3D
         _surface = GetNode<MeshInstance3D>("Surface");
         _surface.Mesh = OceanMesh.Create();
         _material = (ShaderMaterial)_surface.MaterialOverride;
+        _material.SetShaderParameter(SurfaceUniforms.MeshSpacing, OceanMesh.SnapStep);
+        _material.SetShaderParameter(SurfaceUniforms.MeshGrowth, RingLayout.Growth());
         _rd = RenderingServer.GetRenderingDevice();
         if (_rd == null)
         {

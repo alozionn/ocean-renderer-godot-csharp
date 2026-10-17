@@ -5,14 +5,16 @@ render_mode world_vertex_coords, blend_mix, depth_draw_always, cull_back, shadow
 #include "include/lighting.gdshaderinc"
 
 // Set by C# (SurfaceUniforms.cs).
-uniform sampler2D displacement_0 : filter_linear, repeat_enable;
-uniform sampler2D displacement_1 : filter_linear, repeat_enable;
-uniform sampler2D displacement_2 : filter_linear, repeat_enable;
+uniform sampler2D displacement_0 : filter_linear_mipmap, repeat_enable;
+uniform sampler2D displacement_1 : filter_linear_mipmap, repeat_enable;
+uniform sampler2D displacement_2 : filter_linear_mipmap, repeat_enable;
 uniform sampler2D slope_0 : filter_linear_mipmap_anisotropic, repeat_enable;
 uniform sampler2D slope_1 : filter_linear_mipmap_anisotropic, repeat_enable;
 uniform sampler2D slope_2 : filter_linear_mipmap_anisotropic, repeat_enable;
 uniform vec3 patch_sizes = vec3(400.0, 73.0, 13.7);
 uniform vec3 texel_sizes = vec3(0.78125, 0.142578, 0.026758);
+uniform float mesh_spacing = 0.25; // RingLayout: inner vertex spacing (m)
+uniform float mesh_growth = 0.0281; // RingLayout.Growth(): outer spacing per metre of Chebyshev distance
 uniform sampler2D screen_tex : hint_screen_texture, filter_linear;
 uniform sampler2D depth_tex : hint_depth_texture, filter_nearest;
 uniform sampler2D foam_near : filter_linear, repeat_disable;
@@ -27,6 +29,8 @@ group_uniforms geometry;
 uniform float fade_swell : hint_range(100.0, 8000.0, 10.0) = 3000.0;
 uniform float fade_chop : hint_range(50.0, 4000.0, 10.0) = 800.0;
 uniform float fade_ripples : hint_range(10.0, 1000.0, 5.0) = 200.0;
+// Displacement mip = log2(vertex spacing / max(texel, inner spacing)) + bias. Without it the outer rings alias and swim as the camera moves.
+uniform float displacement_lod_bias : hint_range(-2.0, 2.0, 0.05) = 0.0;
 
 group_uniforms colour;
 uniform vec3 shallow_color : source_color = vec3(0.12, 0.2, 0.24);
@@ -88,7 +92,7 @@ uniform float foam_hex_contrast : hint_range(1.0, 8.0, 0.1) = 3.0;
 uniform float foam_far_opacity : hint_range(0.0, 1.0, 0.01) = 0.35;
 uniform float foam_lod_start : hint_range(0.0, 1000.0, 5.0) = 120.0;
 uniform float foam_lod_end : hint_range(0.0, 2000.0, 5.0) = 220.0;
-uniform float foam_fade_range : hint_range(10.0, 3000.0, 5.0) = 220.0;
+uniform float foam_fade_range : hint_range(10.0, 3000.0, 5.0) = 400.0;
 uniform float foam_roughness : hint_range(0.0, 1.0, 0.01) = 0.8;
 uniform float foam_flatten : hint_range(0.0, 1.0, 0.01) = 0.6;
 uniform float foam_relief : hint_range(0.0, 2.0, 0.01) = 0.3;
@@ -108,18 +112,23 @@ varying float v_foam;
 varying float v_white;
 varying float v_bubbles;
 
-// Summed cascade displacement at an undisplaced grid position, each cascade faded out with distance.
-vec3 displacement_at(vec2 grid, float dist) {
+// Summed cascade displacement at an undisplaced grid position, each cascade faded out with distance and filtered to
+// the local vertex spacing (the mesh can only show wavelengths of at least two vertices).
+vec3 displacement_at(vec2 grid, float dist, float spacing) {
 	vec3 far = vec3(fade_swell, fade_chop, fade_ripples);
 	vec3 fade = 1.0 - smoothstep(0.25 * far, far, vec3(dist));
-	return textureLod(displacement_0, grid / patch_sizes.x, 0.0).xyz * fade.x
-		+ textureLod(displacement_1, grid / patch_sizes.y, 0.0).xyz * fade.y
-		+ textureLod(displacement_2, grid / patch_sizes.z, 0.0).xyz * fade.z;
+	// Inner rings (spacing == mesh_spacing) keep mip 0: they snap to their own spacing, so they never swim.
+	vec3 lod = max(log2(spacing / max(texel_sizes, vec3(mesh_spacing))) + displacement_lod_bias, vec3(0.0));
+	return textureLod(displacement_0, grid / patch_sizes.x, lod.x).xyz * fade.x
+		+ textureLod(displacement_1, grid / patch_sizes.y, lod.y).xyz * fade.y
+		+ textureLod(displacement_2, grid / patch_sizes.z, lod.z).xyz * fade.z;
 }
 
 void vertex() {
 	v_grid = VERTEX.xz;
-	vec3 d = displacement_at(v_grid, length(VERTEX.xz - CAMERA_POSITION_WORLD.xz));
+	vec2 local = VERTEX.xz - MODEL_MATRIX[3].xz; // offset from the (snapped) mesh centre
+	float spacing = max(mesh_spacing, max(abs(local.x), abs(local.y)) * mesh_growth);
+	vec3 d = displacement_at(v_grid, length(VERTEX.xz - CAMERA_POSITION_WORLD.xz), spacing);
 	VERTEX += d;
 	v_height = d.y;
 }

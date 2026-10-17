@@ -133,6 +133,8 @@ public partial class DevHarness : Node
     async Task<bool> FoamTargets()
     {
         if (!_args.ContainsKey("cam")) Captures.Place(_camera, Captures.Poses["hero"]);
+        // The targets were defined on the calm preset; the demo starts on breeze.
+        if (!_args.ContainsKey("preset")) _ocean.LoadConfig("res://demo/presets/ocean_calm.json");
         float angle = Mathf.DegToRad(_ocean.Config.Cascades[0].WindDirection + _ocean.Config.Foam.StreakAngleOffset);
         async Task<FoamMeasure> At(float rate)
         {
@@ -165,9 +167,10 @@ public partial class DevHarness : Node
         return ok;
     }
 
-    /// <summary>Average and 1 %-low frame time after a 3 s warm-up, at the current pose.</summary>
+    /// <summary>Average and 1 %-low frame time after a 3 s warm-up, at the hero pose (or --cam).</summary>
     async Task Bench(double seconds)
     {
+        if (!_args.ContainsKey("cam")) Captures.Place(_camera, Captures.Poses["hero"]);
         await Wait(3.0);
         var times = new List<double>();
         ulong last = Time.GetTicksUsec(), end = last + (ulong)(seconds * 1e6);

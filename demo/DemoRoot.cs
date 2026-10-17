@@ -48,7 +48,7 @@ public partial class DemoRoot : Node
     {
         var names = DirAccess.GetFilesAt(PresetDir).Where(f => f.StartsWith("ocean_") && f.EndsWith(".json"))
             .Select(f => f["ocean_".Length..^".json".Length]).Append("custom").ToArray();
-        string selected = names.Contains("calm") ? "calm" : names[0];
+        string selected = names.FirstOrDefault(n => Ocean.ConfigPath.EndsWith($"ocean_{n}.json")) ?? names[0];
         string Path(string name) => name == "custom" ? CustomPreset : $"{PresetDir}ocean_{name}.json";
         return new ParameterSet("Presets", new[]
         {
