@@ -66,7 +66,7 @@ Plain JSON (camelCase, unknown fields ignored, missing fields keep their default
 ```
 
 `resolution` is 256, 512 or 1024 per cascade. `foamTexture` is `crest`, `ambientcg_001` or `procedural`. The demo ships
-`demo/presets/ocean_calm.json` (the defaults) and `ocean_breeze.json`.
+`demo/presets/ocean_calm.json` (the built-in defaults) and `ocean_breeze.json` (the demo starts on it).
 
 ## How the per-frame GPU work is scheduled
 
@@ -77,18 +77,25 @@ most one cascade or the foam fields. Everything due in a frame goes into one com
 is due. When frames are slower than the tick rate, everything due ticks every frame. Cascade time advances by the real
 elapsed time × `timeScale`, so the result is frame-rate independent. A cascade tick is: evolve the spectrum while
 loading each row, row FFTs, column FFTs with the outputs assembled in registers (displacement + Jacobian, slope,
-Jacobian partials), then mip chains for slope and partials.
+Jacobian partials), then mip chains for displacement, slope and partials.
+
+The surface is one camera-centred mesh of square rings: 0.25 m spacing for the first 8 m, then growing geometrically
+to 4 km. Each vertex samples the displacement at the mip that matches its own spacing, so the coarse outer rings show
+only the waves they can resolve instead of aliasing and swimming as the camera moves.
 
 ## The foam pipeline in one paragraph
 
 Two camera-centred RG16F fields (near: 1024² over 256 m, far: 1024² over 2048 m), snapped to whole texels, sum the three
 cascades' Jacobian partials at their own resolution and inject foam where the combined Jacobian drops below `bias`.
-Red is density (slow decay, anisotropic diffusion along the swell direction: the trails), green is freshness (fast
+Red is density (slow decay, blurred every tick, mostly along the swell direction: the trails), green is freshness (fast
 decay: the whitecaps). Because the field lives in world space while the crest that injects it moves on, foam stays with
 the water and trails form behind breaking crests. The surface shader looks the field up at the undisplaced grid
-position, erodes a hex-tiled, blurred, streak-stretched detail texture with it (Crest-style lace: thin foam keeps only
-the brightest parts), adds a soft veil and milky water around foam, flattens and tilts the normal by the lace relief,
-and lights foam with wrapped Lambert so it darkens away from the sun and warms under a sunset.
+position and erodes a hex-tiled, streak-stretched detail texture with it (Crest-style lace: thin foam keeps only the
+brightest parts). Following Sea of Thieves ("The Technical Art of Sea of Thieves", SIGGRAPH 2018), the foam's age
+(how much of it is no longer fresh) blends the sharp crest texture into a blurred, softer, fainter version of the same
+texture at the same place, so a crest dissolves into its own tail instead of into unrelated blobs. Milky water around
+foam, a lace relief on the normal, and wrapped Lambert lighting so foam darkens away from the sun and warms under a
+sunset.
 
 ## Demo keys
 
@@ -102,7 +109,8 @@ and lights foam with wrapped Lambert so it darkens away from the sun and warms u
 | Shift | ×5 speed |
 | mouse wheel | speed ×1.2 / ÷1.2 |
 
-Panels exist only in debug builds. Presets save to `user://ocean_custom.json` and load back as "custom".
+Both panels are open when the demo starts; F1 / F2 hide them. They exist only in debug builds (running from the editor
+or a debug export). Presets save to `user://ocean_custom.json` and load back as "custom".
 
 ## Tests
 
@@ -120,27 +128,27 @@ port, an analytic single wave, mip chains) and the foam field targets.
 
 ## Performance
 
-1920×1080, 3D scale 100 %, vsync off, glow on, hero pose, AMD Radeon RX 9070 XT, D3D12:
+1920×1080, 3D scale 100 %, vsync off, glow on, calm preset at the hero pose (`--bench`), AMD Radeon RX 9070 XT, D3D12:
 
 | Cascades | Average | 1 % low |
 |---|---|---|
-| 3 × 512² | 1300–1314 fps (0.76 ms) | 330–480 fps |
-| 3 × 1024² | 1134–1163 fps (0.87 ms) | 290–440 fps |
+| 3 × 512² | ~1310 fps (0.76 ms) | 330–500 fps |
+| 3 × 1024² | ~1130 fps (0.89 ms) | 250–300 fps |
 
-The 1 % lows are the frames that record a tick plus normal OS jitter.
+Glow costs about 0.1–0.2 ms of that; the breeze preset at the demo's default view measured 0.57 ms with glow off.
+The 1 % lows are the frames that record a tick plus normal OS jitter. See "Performance notes" in `OCEAN_GUIDE.md`
+for where the remaining time goes.
 
 ## Notes
 
 - **Tick phases.** The three cascades and the foam slot share the interval in four equal phases (0, ¼, ½, ¾), so the
   foam fields always tick after the last cascade and never with the first.
-- **Foam lighting.** The engine multiplies `DIFFUSE_LIGHT` by `ALBEDO`, which already blends water and foam by coverage,
-  so the foam's wrapped Lambert is weighted by `coverage · foam_color / ALBEDO`. Weighting by coverage alone lit
-  partial foam with coverage², which made it grey and blue.
+- **Foam lighting.** Diffuse is `mix(Lambert, wrapped Lambert, foam)` for the whole surface (the engine multiplies it
+  by `ALBEDO`, which already blends water and foam), and a bubble-scatter term lights milky water and foam alike. Small
+  deviations from that recipe produced dark "shadows" in the foam veil and blue streaks along lace edges.
 - **Streak anisotropy.** The foam stats measure the ratio of the 0.5-autocorrelation lengths of the near field's
-  density along and across the streak. Here it stays at about 1.05 with the default parameters: crest lines across the
-  wind are about as long as the trails behind them (the trails themselves visibly smear along the swell direction, and
-  even 10× more along-streak diffusion only reaches 1.2). `--selftest` reports it as WARN, not FAIL. The look comes
-  mostly from the stretched detail texture, as intended.
+  density along and across the streak. It stays near 1 (crest lines across the wind are about as long as the trails
+  behind them), so `--selftest` reports it as WARN, not FAIL. The streaky look comes from the stretched detail texture.
 - **Sky sun positions.** The three Cloudy Skyboxes suns were measured from captures (the painted disc versus the glint,
   level camera); warmth × brightness put them 2–11° off. The numbers in `demo/presets/skies.json` are the verified ones.
 
@@ -148,6 +156,9 @@ The 1 % lows are the frames that record a tick plus normal OS jitter.
 
 `dotnet build -p:Ship=true` excludes `dev/` from compilation; delete `dev/` (and `tests/`) from an export. The demo runs
 without them.
+
+Godot exports only resources by default: add `*.json` to the export preset's "Filters to export non-resource files" so
+the presets (`demo/presets/*.json`, including `skies.json`) and any ocean `ConfigPath` ship with the build.
 
 ## Credits
 

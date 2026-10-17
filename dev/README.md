@@ -25,5 +25,5 @@ Not shipped: `dotnet build -p:Ship=true` excludes this folder, and nothing outsi
 | `--panels` | shows both parameter panels unfolded (for UI captures) |
 | `--prepare-assets` | one-off asset processing from `.scratch/downloads/` (see the asset READMEs) |
 
-Poses: hero, high_sun, high_side, low_sun, mid_close, low_away, top_down, close, close_down, shore (`Captures.cs`).
+Poses: hero, high_sun, high_side, low_sun, mid_close, low_away, top_down, close, close_down, shore, overview (the demo's default camera) (`Captures.cs`). `--bench` measures at hero unless `--cam` is given; `--selftest` and `--foam-stats` measure the foam targets on the calm preset unless `--preset` is given (the demo starts on breeze).
 Look at the full-resolution captures, not only the contact sheet.

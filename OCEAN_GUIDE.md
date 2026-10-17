@@ -41,6 +41,15 @@ The previous build measured 1125–1169 fps at 512² and 978 fps at 1024² on a 
 
 **The decisive win:** rendering a frame does not need a simulation step. Ticks run at a fixed rate (60 Hz) on staggered phases (section 8), so at 1000+ fps most frames record no compute at all.
 
+**Where the rest of the frame goes** (last build: 0.76 ms at 512² with glow; the breeze demo view 0.57 ms with glow off; a realistic floor is sub-0.5 ms without glow). Measured items are marked; the rest are estimates and the order to try them in:
+- **Glow** (measured): 0.1–0.2 ms. The single largest post cost. Fewer glow levels or a lower `glow_hdr_threshold` range trades directly.
+- **Anisotropic filtering on foam** (measured): 0.05 ms when applied to every foam tap; 0 when only on the sharp crest layer (section 9.3). Same lesson for any new texture: measure with and without.
+- **Vertices outside the view** (estimate, likely the biggest remaining win): the surface is one 263k-vertex mesh, so it is never frustum-culled and every vertex runs its three displacement taps even behind the camera (~60–70 % of the mesh at 70° fov). Splitting the ring grid into ~8 angular sectors (separate surfaces or `MeshInstance3D`s with tight AABBs, still snapped together) lets Godot cull them. Expect roughly 0.05–0.1 ms.
+- **Fewer rings** (estimate): R = 192 instead of 256 is 44 % fewer vertices; the outer rings are already sub-pixel at the horizon. Re-check `low_away` and `high_side` for faceting.
+- **Screen and depth texture copies** (estimate): `hint_screen_texture` and `hint_depth_texture` each cost a full-screen copy (~0.02–0.04 ms each at 1080p). They are needed for refraction and shore depth; a variant without refraction for open ocean could drop the screen copy.
+- **Fragment foam** (estimate): up to 12 detail taps per pixel near the camera (3 crest, 3 tail, 6 relief). The relief taps are the cheapest to drop (bicubic range only).
+- **Engine floor**: measure an empty scene with the same sky, tonemap and fog to know what is not the ocean's. Run every comparison 3× with `--bench=8`; differences under ~0.02 ms are noise.
+
 ---
 
 ## 2. Art direction
@@ -134,6 +143,7 @@ Don't "correct" these from Godot 4.0–4.2 memory.
 | `Shader.GetShaderUniformList(getGroups: true)` returns `group_uniforms` entries (usage has `Group`/`Subgroup`) | Surface parameter groups come from the shader's own groups |
 | `rd.TextureGetData` reads back synchronously; `rd.TextureUpdate` needs `CanUpdateBit` | dev/ only |
 | Write files without a BOM | Godot dislikes BOMs in `.tscn`/`.tres` |
+| Exports include only resources by default | Add `*.json` to the export preset's non-resource filter, or presets, `skies.json` and `ConfigPath` files are missing from builds |
 | A copied addon can keep logging "invalid UID" after import | Run `<godot> --headless --path . --import`; if the warnings remain, delete the addon's `.uid` files and import again |
 
 ---
@@ -222,7 +232,7 @@ public sealed class FoamConfig { Bias, Gain, InjectRate, Decay, FreshDecay, Diff
 ```
 - Ranges, steps and `exp` flags for the UI live next to the fields as attributes or a static table in core (e.g. `[Range(4, 2000, 0.1, Exp = true)]`). The parameter model (section 12) reads them.
 - `Surface` holds only what differs from the shader defaults: floats as numbers, colours as `"#rrggbb"` or `[r, g, b]`.
-- `OceanConfig.Default` = the calm preset below. The demo ships `demo/presets/ocean_calm.json` and `ocean_breeze.json`.
+- `OceanConfig.Default` = the calm preset below. The demo ships `demo/presets/ocean_calm.json` and `ocean_breeze.json`. The demo's ocean instance sets `ConfigPath` to breeze (more dramatic, the first impression); the dev foam targets are defined on calm.
 
 **Calm (default):**
 
@@ -266,13 +276,13 @@ Spectrum lessons:
   - Sign check: `Dx hat = +i·ux·h` with `x' = x + λDx` sharpens crests.
 - Pass 0, dispatch `(1, N, 2)`: evolve h0 to time t **while loading** each row, inverse-FFT the row; z selects pair A or B; write to `spectrum_a/b` (RGBA32F images: tiled, so column reads stay cache-friendly).
 - Pass 1, dispatch `(N, 1, 1)`: inverse-FFT pair A's column, keep the results in registers, then pair B's, then assemble (no separate dispatch):
-  - `h = HeightScale`, `l = Choppiness · h`; displacement `(l·Dx, h·Dy, l·Dz, J)` → RGBA16F.
+  - `h = HeightScale`, `l = Choppiness · h`; displacement `(l·Dx, h·Dy, l·Dz, J)` → RGBA16F **with full mips** (section 10: the outer mesh rings need them).
   - `Jxx = 1 + l·dDx/dx`, `Jzz = 1 + l·dDz/dz`, `Jxz = l·dDx/dz`, `J = Jxx·Jzz − Jxz²`.
   - Slope `h·(dDy/dx, dDy/dz) / max((Jxx, Jzz), 0.25)` (sharpens compressed crests), `.z = 0`, `.w = |slope|²` → RGBA16F with full mips.
   - **Jacobian partials `(Jxx−1, Jzz−1, Jxz)`** → their own RGBA16F with full mips. Store partials, not J: the Jacobian of a sum is not the sum of Jacobians.
 
 ### 8.3 `mipmap.glsl`
-2×2 box downsample, one dispatch per level, for the slope chain and the partials chain (8×8 threads).
+2×2 box downsample, one dispatch per level, for the displacement, slope and partials chains (8×8 threads). The fft pass writes mip 0 through a single-mip view, as for the other chains.
 
 ### 8.4 C# side
 - `OceanPipelines` loads and frees all compute shaders and pipelines (pipelines before shaders).
@@ -410,7 +420,7 @@ float foam_lace(float body, float detail, float softness) {   // Crest-style ero
 | foam_dense_shade | 0.45 | foam_trail_opacity | 0.7 |
 | foam_veil | 0.25 | foam_hex_rotation / density / contrast | 180° / 1 / 3 |
 | foam_far_opacity | 0.35 | foam_lod_start / end | 120 / 220 m |
-| foam_fade_range | 220 m | foam_roughness / flatten | 0.8 / 0.6 |
+| foam_fade_range | 400 m | foam_roughness / flatten | 0.8 / 0.6 |
 | foam_relief | 0.3 | foam_wrap | 0.35 |
 | milk_color / strength / range | (0.5,0.55,0.56) / 0.15 / 1.5 | shore_foam_distance / shore_fade_distance | 0.8 / 0.3 |
 
@@ -433,6 +443,7 @@ These are a safety net; the captures decide.
 
 - **Mesh** (`Ocean.Core.Mesh.RingLayout` → `OceanMesh`): a `(2R+1)²` grid, R = 256 rings. Chebyshev ring n has half-size `n · 0.25 m` for the first 32 rings, then grows geometrically to 4000 m at ring 256 (~263k vertices). Indices sorted by ring so near water draws first (early-z with `depth_draw_always`). Clockwise seen from above. Huge `CustomAabb`; `cast_shadow` off. The mesh snaps to the camera's xz in 0.25 m steps.
 - **Vertex:** sum the three displacement samples, each × `1 − smoothstep(0.25·d, d, dist)` with d = (3000, 800, 200) m. `v_grid = VERTEX.xz` before displacement; `v_height = d.y`.
+- **Displacement LOD (no swimming far waves):** each vertex samples the displacement at `lod = max(0, log2(spacing / max(texel, 0.25 m)) + displacement_lod_bias)`, with its own spacing `spacing = max(0.25, chebyshev_offset · RingLayout.Growth())` (growth ≈ 0.0281: the outer rings are 28 m apart at 1 km). Without it the geometric rings point-sample waves far shorter than their spacing; since the whole mesh slides with the camera in 0.25 m steps, those vertices land on different parts of the waves every step and the far sea turns "very wavy", reshaping as you move, with fake crests that get no foam (the foam field, built from properly filtered partials, knows they aren't there). The inner rings snap to exactly their own spacing, so they never swim; the `max(texel, 0.25 m)` keeps them at mip 0 and the near look unchanged.
 - **Normals:** cascade slopes × `normal_swell / chop / ripples` (1 / 0.8 / 0.45). Bicubic (B-spline, 4 bilinear taps) within `bicubic_distance` 60 m, blended out over 70–100 % of it; trilinear-anisotropic beyond.
 - **Distance calming:** normal strength × `mix(normal_fade_floor 0.12, 1, exp(−d / normal_fade_range 220))`; chop fades out by 600 m, ripples by 120 m. Don't turn the removed slope into roughness: the rough-surface Fresnel drops and the far field goes dark brown.
 - **Roughness:** LEAN-style variance `Σ strength² · max(slope.w − |slope.xy|², 0)` with the un-calmed strengths, **only beyond the bicubic range** (up close it makes dark blotches); `α = sqrt(roughness⁴ + variance)`, roughness 0.12, `variance_roughness` 1.
@@ -462,7 +473,7 @@ These are a safety net; the captures decide.
 
   All five rows are verified by capture. Automatic measurement from the image (brightest pixel, or warmth × brightness) is unreliable on these tonemapped sunsets: it lands on haze below the disc and was off by up to 13° of elevation, so don't build it. **Verify by capture instead**: camera at `0,15,0,0,0` (level, yaw 0), find the painted disc's pixel (x, y), then azimuth error = `atan((x − 960)/960 · tan(hfov/2))` (hfov/2 from vertical fov 70° at 16:9: `tan = 0.7 · 16/9`), elevation = `atan((540 − y)/540 · tan(35°))`. Add the azimuth error to the table value; the glint must sit under the disc. Keep the procedural sky's ground non-black.
 - **Rock** (`demo/props/rock.tscn`): `SphereMesh` radius 40, height 30, 96 × 32 segments, at (120, −8, −160). `rock.gdshader`: vertex displacement along the normal by 3-octave value-noise fbm (`noise_scale` 0.07, `amplitude` 9); heights above `flat_top` 13.5 compressed ×0.25 into a flattish top; albedo (0.22, 0.2, 0.18) with lighter strata (0.34, 0.31, 0.27); a darker wet band within 1.5 m of y = 0; roughness 0.9; faceted shading (`facets` 0.7: blend towards flat face normals from screen derivatives). A composition anchor and a shore-foam test, not terrain.
-- **`FreeFlyCamera`:** WASD, Q/E down/up, hold RMB to look (start it in `_UnhandledInput` so UI clicks never start it, release in `_Input`), Shift ×5, wheel ×1.2 speed. Default pose = hero (mind the row-major basis), `fov` 70, `far` 8000.
+- **`FreeFlyCamera`:** WASD, Q/E down/up, hold RMB to look (start it in `_UnhandledInput` so UI clicks never start it, release in `_Input`), Shift ×5, wheel ×1.2 speed. Default pose = `overview` (0, 52, −40, pitch −33°, yaw −24°: rock and glint in view, breeze crests in front; mind the row-major basis), `fov` 70, `far` 8000.
 
 ## 12. Parameters and the generic UI (milestone M4) **(new)**
 
@@ -479,7 +490,7 @@ Systems describe their state; one generic presenter shows whatever it is given. 
 **Presenter (`demo/ui/ParameterPanel`):**
 - A panel scene (title, scroll container, VBox) styled by `demo_theme.tres`, and one row scene per kind in `demo/ui/rows/`. The editor owns how rows look; code never builds or styles controls beyond instancing a row scene.
 - `ParameterPanel.Show(IEnumerable<ParameterSet>)`: one foldable section per set, sub-sections per group, one row per parameter, bound both ways. Rows unsubscribe on exit.
-- `MouseFilter = Stop` so dragging a slider never moves the camera. Toggle key per panel (F1, F2). Visible only in debug builds.
+- `MouseFilter = Stop` so dragging a slider never moves the camera. Toggle key per panel (F1, F2). **Open when the demo starts** (new users won't find hidden panels); the title says which key hides it. Only in debug builds.
 - **`DemoRoot`** is the only place that knows both sides: it gets the ocean via an exported `NodePath`, builds the panels' sets, and adds the demo's own sets:
   - "Presets" set: an Enum of `demo/presets/ocean_*.json`, Load (Action), and Save to `user://ocean_custom.json` (Action);
   - "Environment" set (F2 panel): sky Enum, Sky Yaw, Sun Elevation, Sky Energy, Sun Energy, glow on/off.
@@ -496,9 +507,9 @@ Everything here lives in `dev/` and runs from `dev/dev_main.tscn`, which instanc
 | `--capture=<pose,…>` | for each named pose (section 14): place the camera, **restart the simulation** (so the same pose gives the same waves in every run, which A/B comparisons need), let it settle 3 s (`--settle=<s>`), save `.scratch/captures/<tag>_<pose>.png` from the viewport, then a 2-column contact sheet (`Image.BlitRect`), then quit; `--tag=` names the run; pose `current` keeps the `--cam` pose |
 | `--panels` | shows the parameter panels unfolded, for UI captures |
 | `--burst=<n>` | at the current pose, save n consecutive frames (crop 640×360 from the centre) and a strip image; the flicker check, takes about a second |
-| `--bench=<seconds>` | average and 1 %-low frame time after a 3 s warm-up; prints one line, quits |
+| `--bench=<seconds>` | average and 1 %-low frame time after a 3 s warm-up at the hero pose (or `--cam`); prints one line, quits |
 | `--selftest` | runs `GpuChecks` (section 15.2), prints PASS/FAIL per check, exits 0/1 |
-| `--foam-stats` | prints the 9.6 numbers after 8 s, quits |
+| `--foam-stats` | prints the 9.6 numbers after 8 s on the calm preset (or `--preset`), quits |
 | `--prepare-assets` | the asset processing from 5.4 |
 
 Look at the full-resolution captures, not only the contact sheet: a downscaled sheet can invent speckle — and it hides seams. Crop regions at 1:1 (a small script under `.scratch/` is fine).
@@ -519,6 +530,7 @@ Look at the full-resolution captures, not only the contact sheet: a downscaled s
 | close | 0,4,0,−30,20 | lace, no wire mesh |
 | close_down | 0,7,0,−62,40 | foam texture, relief |
 | shore | 60,10,−110,−15,−50 | shore foam at the rock |
+| overview | 0,52,−40,−33,−24 | the demo's default camera (breeze): crest foam, far waves calm and stable |
 
 Yaw 0 faces the sun on every panorama preset. Bursts at `close_down` and `hero`: foam drifts with the water, caps age into trails, nothing pops between frames. Compare the hero capture against `docs/reference.webp`.
 
@@ -585,6 +597,8 @@ Yaw 0 faces the sun on every panorama preset. Bursts at `close_down` and `hero`:
 - `sin`-based hash for the hex-tiling vertices → hard straight seams and sheared foam patches (section 9.3). Use the integer hash.
 - Foam detail without anisotropic filtering → foam smeared into stretched streaks instead of wispy lace (section 9.3).
 - Shore depth as a vertical drop → crests above the horizon turn transparent; use the distance along the view ray (section 10).
+- Point-sampled displacement on the outer rings → the far sea swims and reshapes as the camera moves, with foam-less fake crests. Displacement mips + LOD by vertex spacing (section 10).
+- `foam_fade_range` 220 m → crests beyond ~300 m showed no foam at all; 400 m.
 - Lighting that deviates from section 9.4 (bubble scatter only on fresh foam, foam-only diffuse, water roughness under foam) → a dark "shadow" in the veil, blue streaks along lace edges, embossed foam. Gating the relief hid the streaks but not the cause.
 - Anisotropic filtering on every foam tap → +0.05 ms; only the sharp layer needs it (section 9.3).
 - Every GPU cost added has to be measured (3 bench runs each way) and justified; "the look needs it" is checked by an A/B capture of the same frame.
