@@ -194,6 +194,7 @@ public partial class DevHarness : Node
                 if (!Captures.Poses.TryGetValue(pose, out var p)) { GD.PushError($"unknown pose {pose}"); continue; }
                 Captures.Place(_camera, p);
             }
+            _ocean.Restart(); // same sea state for the same pose across runs, for A/B comparisons
             await Wait(_args.TryGetValue("settle", out var settle) ? double.Parse(settle, System.Globalization.CultureInfo.InvariantCulture) : 3.0);
             var img = await Captures.Grab(this);
             Captures.Save(img, $"{Tag}_{pose}");

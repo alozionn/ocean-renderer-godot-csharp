@@ -21,9 +21,17 @@ vec2 foam_field_lookup(vec2 grid) {
 }
 
 // Hex tiling (Mikkelsen 2022): three randomly rotated/offset copies blended by barycentric weights.
+// Exact integer hash (PCG). A sin-based hash is not: the same vertex is reached from three code paths, and one ulp
+// of a large sin() argument gives a different random copy on each side of a triangle edge (hard seams).
+uint hex_pcg(uint x) {
+	uint state = x * 747796405u + 2891336453u;
+	uint word = ((state >> ((state >> 28u) + 4u)) ^ state) * 277803737u;
+	return (word >> 22u) ^ word;
+}
+
 vec2 hex_hash(ivec2 p) {
-	vec2 r = vec2(dot(vec2(p), vec2(127.1, 311.7)), dot(vec2(p), vec2(269.5, 183.3)));
-	return fract(sin(r) * 43758.5453);
+	uint h = hex_pcg(uint(p.x) + hex_pcg(uint(p.y)));
+	return vec2(float(h >> 8u), float(hex_pcg(h) >> 8u)) / 16777216.0;
 }
 
 float hex_copy(vec2 uv, ivec2 vertex, vec2 gx, vec2 gy, float density) {
@@ -52,9 +60,11 @@ float foam_hex(vec2 uv, vec2 gx, vec2 gy, float blur) {
 	ivec2 v1 = base + ivec2(int(s), int(s));
 	ivec2 v2 = base + ivec2(int(s), 1 - int(s));
 	ivec2 v3 = base + ivec2(1 - int(s), int(s));
-	w = pow(max(w, vec3(0.0)), vec3(foam_hex_contrast));
-	w /= max(w.x + w.y + w.z, 1e-5);
-	return w.x * hex_copy(uv, v1, gx, gy, density) + w.y * hex_copy(uv, v2, gx, gy, density) + w.z * hex_copy(uv, v3, gx, gy, density);
+	vec3 c = vec3(hex_copy(uv, v1, gx, gy, density), hex_copy(uv, v2, gx, gy, density), hex_copy(uv, v3, gx, gy, density));
+	// Luminance-weighted blend (Mikkelsen): the brighter copy wins, so transitions follow the foam's own shapes
+	// instead of the straight edges of the triangle grid.
+	w = mix(vec3(1.0), c, 0.6) * pow(max(w, vec3(0.0)), vec3(foam_hex_contrast));
+	return dot(w, c) / max(w.x + w.y + w.z, 1e-5);
 }
 
 // Crest-style erosion: thin foam keeps only the brightest parts of the detail.

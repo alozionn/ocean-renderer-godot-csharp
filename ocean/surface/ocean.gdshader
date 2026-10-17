@@ -105,22 +105,28 @@ varying float v_foam;
 varying float v_white;
 varying vec3 v_foam_diffuse;
 
+// Summed cascade displacement at an undisplaced grid position, each cascade faded out with distance.
+vec3 displacement_at(vec2 grid, float dist) {
+	vec3 far = vec3(fade_swell, fade_chop, fade_ripples);
+	vec3 fade = 1.0 - smoothstep(0.25 * far, far, vec3(dist));
+	return textureLod(displacement_0, grid / patch_sizes.x, 0.0).xyz * fade.x
+		+ textureLod(displacement_1, grid / patch_sizes.y, 0.0).xyz * fade.y
+		+ textureLod(displacement_2, grid / patch_sizes.z, 0.0).xyz * fade.z;
+}
+
 void vertex() {
 	v_grid = VERTEX.xz;
-	float dist = length(VERTEX.xz - CAMERA_POSITION_WORLD.xz);
-	vec3 fade = 1.0 - smoothstep(0.25 * vec3(fade_swell, fade_chop, fade_ripples), vec3(fade_swell, fade_chop, fade_ripples), vec3(dist));
-	vec3 d = textureLod(displacement_0, v_grid / patch_sizes.x, 0.0).xyz * fade.x
-		+ textureLod(displacement_1, v_grid / patch_sizes.y, 0.0).xyz * fade.y
-		+ textureLod(displacement_2, v_grid / patch_sizes.z, 0.0).xyz * fade.z;
+	vec3 d = displacement_at(v_grid, length(VERTEX.xz - CAMERA_POSITION_WORLD.xz));
 	VERTEX += d;
 	v_height = d.y;
 }
 
 void fragment() {
-	// Screen gradients of the grid before any branching (foam detail sampling needs them).
-	vec2 grid_dx = dFdx(v_grid);
-	vec2 grid_dy = dFdy(v_grid);
 	vec3 world = (INV_VIEW_MATRIX * vec4(VERTEX, 1.0)).xyz;
+	vec2 grid = v_grid;
+	// Screen gradients of the grid before any branching (foam detail sampling needs them).
+	vec2 grid_dx = dFdx(grid);
+	vec2 grid_dy = dFdy(grid);
 	vec3 to_camera = CAMERA_POSITION_WORLD - world;
 	float dist = length(to_camera);
 	vec3 v = to_camera / dist;
@@ -137,9 +143,9 @@ void fragment() {
 	// Normals: bicubic up close, filtered beyond; strengths calm with distance.
 	float b = 1.0 - smoothstep(0.7 * bicubic_distance, bicubic_distance, dist);
 	vec3 size = patch_sizes / texel_sizes;
-	vec4 s0 = sample_slope(slope_0, v_grid / patch_sizes.x, size.x, b);
-	vec4 s1 = sample_slope(slope_1, v_grid / patch_sizes.y, size.y, b);
-	vec4 s2 = sample_slope(slope_2, v_grid / patch_sizes.z, size.z, b);
+	vec4 s0 = sample_slope(slope_0, grid / patch_sizes.x, size.x, b);
+	vec4 s1 = sample_slope(slope_1, grid / patch_sizes.y, size.y, b);
+	vec4 s2 = sample_slope(slope_2, grid / patch_sizes.z, size.z, b);
 	float calm = mix(normal_fade_floor, 1.0, exp(-dist / normal_fade_range));
 	vec3 strength = vec3(normal_swell, normal_chop, normal_ripples);
 	vec3 calmed = strength * calm * vec3(1.0,
@@ -148,7 +154,7 @@ void fragment() {
 	vec2 slope = s0.xy * calmed.x + s1.xy * calmed.y + s2.xy * calmed.z;
 
 	// Foam: flatten the water normal under it, then tilt by the lace relief.
-	FoamSample foam = foam_composite(v_grid, grid_dx, grid_dy, dist, shore, b > 0.0);
+	FoamSample foam = foam_composite(grid, grid_dx, grid_dy, dist, shore, b > 0.0);
 	slope = slope * (1.0 - foam.coverage * foam_flatten) + foam.relief * foam_relief * b;
 	vec3 n = normalize(vec3(-slope.x, 1.0, -slope.y));
 	n = horizon_clamp(n, v, horizon_min);
