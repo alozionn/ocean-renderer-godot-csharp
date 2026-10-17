@@ -121,7 +121,8 @@ Don't "correct" these from Godot 4.0–4.2 memory.
 | Reversed Z (4.3+) | Linearise with `INV_PROJECTION_MATRIX * vec4(uv*2-1, depth, 1)`, divide by w |
 | `hint_screen_texture` + `filter_linear_mipmap` blurs a mip chain every frame | Use `filter_linear` and `textureLod(..., 0)` |
 | `LIGHT_COLOR` includes energy × π | Divide by π |
-| `DIFFUSE_LIGHT` is multiplied by `ALBEDO` after `light()` | Water scatter into `SPECULAR_LIGHT`; foam diffuse into `DIFFUSE_LIGHT` |
+| `DIFFUSE_LIGHT` is multiplied by `ALBEDO` after `light()` | Water scatter into `SPECULAR_LIGHT`; foam diffuse into `DIFFUSE_LIGHT`, weighted by `coverage · foam_color / ALBEDO` (section 9.4), not by coverage |
+| `fract(sin(dot(p, k)) · 43758)` hashes are not reproducible: large `sin` arguments plus per-call-site FMA fusion give different results for the same input | Any per-cell random value that several code paths read (hex-tiling vertices, cells) must use an integer hash (the PCG `hash` of 8.1) |
 | Varyings written in `fragment()` are readable in `light()` | Foam coverage, crest factor, bubbles |
 | `dFdx/dFdy` inside non-uniform control flow are undefined | Take UV gradients before branching and pass them in |
 | Per-pixel rotated UVs break mip selection | `textureGrad` with gradients rotated by the same matrix |
@@ -338,7 +339,10 @@ Push block: origin vec2, texel_size, dt, shift ivec2, size, bias, gain, inject_r
 
 **Detail texture:** greyscale, red channel, mipmapped, set from `OceanConfig.FoamTexture`: `crest` (default), `ambientcg_001`, or `procedural`. `FoamDetailTexture.Generate()` is the fallback, used whenever a file is missing: 512², tileable, domain-warped value-noise fbm (warp: two 3-octave fbms at 3 base cells, ±0.09 UV; clouds: 5 octaves from 4 cells, amplitude ×0.55 per octave), plus soft round bubble spots at 14 and 31 cells per tile (max radius 0.45 / 0.4 cells, smoothstep falloff, the second ×0.8). Bubbles only add where the clouds are bright (`clouds + bubbles · clouds · 0.35`); stretch the result to 0..1; R8 with mipmaps. All three textures use the same look values (tile 14, blur 1.2, softness 0.3, dense shade 0.45). **Any detail texture must match Crest's brightness distribution** (mean 0.41, 10th–90th percentile 0.06–0.73) before use, because the erosion thresholds assume it. Without that, replacements came out as flat white sheets or nearly invisible foam. The ambientCG processing in 5.4 does exactly this, and so must any future texture.
 
-**Hex tiling** (Mikkelsen 2022, "Practical Real-Time Hex-Tiling"): skew the UV into a triangle grid (`2√3 · density` cells per tile), take the three hex vertices around the pixel, sample once per vertex with a random rotation (up to `foam_hex_rotation`, 180° = any) about the cell centre plus a random offset, and blend by barycentric weights raised to `foam_hex_contrast` and renormalised. Use `textureGrad` with the screen gradients rotated per copy and × `2^blur`; compute the gradients **before** any branch.
+**Hex tiling** (Mikkelsen 2022, "Practical Real-Time Hex-Tiling"): skew the UV into a triangle grid (`2√3 · density` cells per tile), take the three hex vertices around the pixel, sample once per vertex with a random rotation (up to `foam_hex_rotation`, 180° = any) about the cell centre plus a random offset, and blend by barycentric weights raised to `foam_hex_contrast`, **times a luminance term** `mix(1, sample, 0.6)` (the brighter copy wins, so transitions follow the foam's shapes instead of the grid's straight edges), renormalised. Use `textureGrad` with the screen gradients rotated per copy and × `2^blur`; compute the gradients **before** any branch.
+
+- **The per-vertex random rotation/offset must come from an integer hash** (`hash(uint(v.x) + hash(uint(v.y)))`, two floats from `h >> 8` and `hash(h) >> 8`). A vertex is reached from three code paths (it is slot 1, 2 or 3 depending on the triangle); with a `sin` hash each path rounds differently, the same vertex gets a different copy on each side of an edge, and the foam shows **hard straight seams with sheared patches** between them. This shipped once and was only caught by a user at mid distance.
+- Verify the tiling in isolation (section 14, layer debug): render `foam_hex(...)` alone as emission. It must be continuous; then set rotation and offset to 0 and it must equal plain `textureGrad` sampling exactly.
 
 **Layers:**
 ```glsl
@@ -372,7 +376,7 @@ float foam_lace(float body, float detail) {   // Crest-style erosion: thin foam 
 - Albedo `foam_color` (0.82, 0.84, 0.84), × `mix(0.85, 1, saturate(v_height / 1.5 + 0.5))` so foam darkens in troughs.
 - `ROUGHNESS → foam_roughness`; `SPECULAR → 0` under foam (smoothstep over 0..0.4 of coverage); water GGX specular × (1 − foam).
 - Normal: flatten the water normal by `foam · foam_flatten`, then add the relief.
-- `light()`: wrapped Lambert `(n·l + w)/(1 + w)`, `w = foam_wrap`, into `DIFFUSE_LIGHT` weighted by foam; thin foam (veil, not lace) adds `sss_color · (1 − white) · foam` transmission into `SPECULAR_LIGHT`.
+- `light()`: wrapped Lambert `(n·l + w)/(1 + w)`, `w = foam_wrap`, into `DIFFUSE_LIGHT` weighted by `coverage · foam_albedo / max(ALBEDO, 1e-4)` (a varying from `fragment()`). The engine multiplies `DIFFUSE_LIGHT` by `ALBEDO`, which already blends water and foam by coverage; weighting by coverage alone lights partial foam with coverage² and it comes out grey-blue. Thin foam (veil, not lace) adds `sss_color · (1 − white) · foam` transmission into `SPECULAR_LIGHT`.
 
 ### 9.5 Foam uniform defaults
 | Uniform | Default | Uniform | Default |
@@ -393,10 +397,11 @@ After 8 s at the calm preset from the hero pose, read back the near field once; 
 - `fresh > 0.3` (whitecaps): **0.3–3 %** (previous build: 1.3 %).
 - `density > 0.15` (trails): **3–15 %** (previous build: 14.8 %).
 - 60 Hz vs 120 Hz tick rate: density coverage within **±15 %** relative (previous build: 4 %).
-- Streak anisotropy (autocorrelation length along `d` vs across `e`): **≥ 1.25** (previous build: 1.34).
+- Streak anisotropy (0.5-crossing autocorrelation length of density along `d` vs across `e`): **report only**, not a gate. The last build measured 1.05 with these parameters (the trails visibly smear along `d`, but crest lines across the wind are as long); 10× `DiffuseAlong`, the trail layer alone and the integral length scale all stayed between 0.8 and 1.2. `--selftest` prints it as WARN.
+- Measure from a restarted simulation (cascade time 0, foam fields emptied) so 60 Hz and 120 Hz see the same sea state; otherwise the comparison measures different waves.
 These are a safety net; the captures decide.
 
-**Gate M3:** foam targets met; captures show small bright caps, streaky lacy trails, mostly clear water, no square from above, no tiling; bursts show no flicker; FPS still met.
+**Gate M3:** foam targets met; captures show small bright caps, streaky lacy trails, mostly clear water, no square from above, no tiling; `foam_hex` alone is continuous (section 9.3 check); breeze `mid_close` and `close` at 1:1 show no seams or straight edges in the foam; bursts show no flicker; FPS still met.
 
 ---
 
@@ -429,11 +434,11 @@ These are a safety net; the captures decide.
   |---|---|---|---|---|---|
   | `evening_road` (**start**) | `evening_road_01_puresky.png` | 44.6 | 15.4 | (1, 0.9, 0.8) | 1.6 |
   | `procedural_sunset` | none: ProceduralSkyMaterial top (0.22,0.29,0.48), horizon (0.93,0.62,0.48), curve 0.12, ground bottom (0.36,0.3,0.36), ground horizon (0.93,0.62,0.48), sun_angle_max 20, sun_curve 0.08; yaw 0 | 0 | 10 | (1, 0.78, 0.6) | 1.6 |
-  | `pastel_sunset` | `sbs_cloudy_sky_07.png` | 89.5 | 23.4 | (1, 0.85, 0.75) | 1.5 |
-  | `amber_sunset` | `sbs_cloudy_sky_03.png` | 79.6 | 5.1 | (1, 0.8, 0.62) | 1.5 |
-  | `violet_sunset` | `sbs_cloudy_sky_17.png` | 97.9 | 1.2 | (1, 0.75, 0.6) | 1.5 |
+  | `pastel_sunset` | `sbs_cloudy_sky_07.png` | 89.5 | 21.6 | (1, 0.85, 0.75) | 1.5 |
+  | `amber_sunset` | `sbs_cloudy_sky_03.png` | 89.9 | 9.2 | (1, 0.8, 0.62) | 1.5 |
+  | `violet_sunset` | `sbs_cloudy_sky_17.png` | 89.8 | 14.2 | (1, 0.75, 0.6) | 1.5 |
 
-  Only the Evening Road numbers are verified by capture. The three sunset numbers came from the brightest pixels, which is unreliable on tonemapped sunset images: the brightest pixels are often white cloud or haze, while the sun disc is orange and dimmer. It was off by 16° of elevation on one sky. **Measure the sun as the peak of warmth × brightness** (e.g. `(R − B) · luminance`, after a small blur), then verify every sky by capture: the glint must line up with the painted sun. Fix any number that's off. Keep the procedural sky's ground non-black.
+  All five rows are verified by capture. Automatic measurement from the image (brightest pixel, or warmth × brightness) is unreliable on these tonemapped sunsets: it lands on haze below the disc and was off by up to 13° of elevation, so don't build it. **Verify by capture instead**: camera at `0,15,0,0,0` (level, yaw 0), find the painted disc's pixel (x, y), then azimuth error = `atan((x − 960)/960 · tan(hfov/2))` (hfov/2 from vertical fov 70° at 16:9: `tan = 0.7 · 16/9`), elevation = `atan((540 − y)/540 · tan(35°))`. Add the azimuth error to the table value; the glint must sit under the disc. Keep the procedural sky's ground non-black.
 - **Rock** (`demo/props/rock.tscn`): `SphereMesh` radius 40, height 30, 96 × 32 segments, at (120, −8, −160). `rock.gdshader`: vertex displacement along the normal by 3-octave value-noise fbm (`noise_scale` 0.07, `amplitude` 9); heights above `flat_top` 13.5 compressed ×0.25 into a flattish top; albedo (0.22, 0.2, 0.18) with lighter strata (0.34, 0.31, 0.27); a darker wet band within 1.5 m of y = 0; roughness 0.9; faceted shading (`facets` 0.7: blend towards flat face normals from screen derivatives). A composition anchor and a shore-foam test, not terrain.
 - **`FreeFlyCamera`:** WASD, Q/E down/up, hold RMB to look (start it in `_UnhandledInput` so UI clicks never start it, release in `_Input`), Shift ×5, wheel ×1.2 speed. Default pose = hero (mind the row-major basis), `fov` 70, `far` 8000.
 
@@ -466,14 +471,17 @@ Everything here lives in `dev/` and runs from `dev/dev_main.tscn`, which instanc
 | `--cam=x,y,z,pitch,yaw` | camera pose in degrees |
 | `--sky=<id>` / `--preset=<json name>` | start sky / ocean preset |
 | `--set=<param id>=<value>` | sets any parameter by id (e.g. `--set=foam.bias=0.62`, `--set=surface.foam_veil=0.4`) |
-| `--capture=<pose,…>` | for each named pose (section 14): place the camera, let the sim settle 3 s, save `.scratch/captures/<tag>_<pose>.png` from the viewport, then a 2-column contact sheet (`Image.BlitRect`), then quit; `--tag=` names the run |
+| `--capture=<pose,…>` | for each named pose (section 14): place the camera, **restart the simulation** (so the same pose gives the same waves in every run, which A/B comparisons need), let it settle 3 s (`--settle=<s>`), save `.scratch/captures/<tag>_<pose>.png` from the viewport, then a 2-column contact sheet (`Image.BlitRect`), then quit; `--tag=` names the run; pose `current` keeps the `--cam` pose |
+| `--panels` | shows the parameter panels unfolded, for UI captures |
 | `--burst=<n>` | at the current pose, save n consecutive frames (crop 640×360 from the centre) and a strip image; the flicker check, takes about a second |
 | `--bench=<seconds>` | average and 1 %-low frame time after a 3 s warm-up; prints one line, quits |
 | `--selftest` | runs `GpuChecks` (section 15.2), prints PASS/FAIL per check, exits 0/1 |
 | `--foam-stats` | prints the 9.6 numbers after 8 s, quits |
 | `--prepare-assets` | the asset processing from 5.4 |
 
-Look at the full-resolution captures, not only the contact sheet: a downscaled sheet can invent speckle.
+Look at the full-resolution captures, not only the contact sheet: a downscaled sheet can invent speckle — and it hides seams. Crop regions at 1:1 (a small script under `.scratch/` is fine).
+
+`dotnet build -p:Ship=true` strips `dev/` from the assembly; rebuild normally before the next dev run, or `dev_main.tscn` cannot instance `DevHarness` and Godot never quits.
 
 ## 14. Visual verification
 
@@ -491,6 +499,10 @@ Look at the full-resolution captures, not only the contact sheet: a downscaled s
 | shore | 60,10,−110,−15,−50 | shore foam at the rock |
 
 Yaw 0 faces the sun on every panorama preset. Bursts at `close_down` and `hero`: foam drifts with the water, caps age into trails, nothing pops between frames. Compare the hero capture against `docs/reference.webp`.
+
+**Also capture under `ocean_breeze`**, at least `mid_close` and `close`, and inspect 1:1 crops. Calm has so little foam that foam-texture defects (seams, visible repetition, sheared patches) stay invisible there; heavy foam at 30–100 m shows them at once.
+
+**When something looks wrong, isolate the layer before changing anything.** On one deterministic frame, temporarily write each layer to `EMISSION` (zero `ALBEDO`, `SPECULAR` and the light-path varyings): the foam field (`foam_field_lookup`), the detail texture (`foam_hex` alone, then plain `textureGrad`), coverage/white, the normal. The layer where the artefact first appears is the cause. Change one thing at a time and diff against the same frame. Don't guess at causes from a single beauty shot: the seam bug above first looked like mesh undersampling, then like culled fold triangles, and was neither.
 
 ## 15. Tests
 
@@ -548,3 +560,9 @@ Yaw 0 faces the sun on every panorama preset. Bursts at `close_down` and `hero`:
 - Movie Maker for flicker checks → minutes per clip; use `--burst`.
 - Measuring FPS while another Godot game runs → halved numbers.
 - Judging from one distance or from stills only.
+- `sin`-based hash for the hex-tiling vertices → hard straight seams and sheared foam patches (section 9.3). Use the integer hash.
+- Foam diffuse weighted by coverage on top of the coverage-blended `ALBEDO` → coverage² lighting, grey-blue foam.
+- Judging foam only under the calm preset → texture defects stay hidden; check breeze at mid distance too.
+- Sky sun positions from automatic image measurement → up to 13° off; verify every sky by capture.
+- Captures at different sim times compared as A/B → the "difference" is just different waves; captures restart the sim.
+- A dev run right after a `-p:Ship=true` build → `DevHarness` missing, Godot hangs instead of quitting.
