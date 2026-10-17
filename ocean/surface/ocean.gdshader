@@ -137,7 +137,9 @@ void fragment() {
 	vec3 floor_view = view_position(SCREEN_UV, raw_depth, INV_PROJECTION_MATRIX);
 	float raw = -floor_view.z;
 	float thickness0 = min(max(raw - surface_depth, 0.0), 1e4);
-	float shore_depth = raw > 1e4 ? 1e4 : max(world.y - (INV_VIEW_MATRIX * vec4(floor_view, 1.0)).y, 0.0);
+	// Distance along the view ray to whatever is behind (sky: the far plane, so opaque). Not the vertical drop: for a
+	// crest seen against the sky the far-plane point lies above the water, which would make the crest transparent.
+	float shore_depth = distance(floor_view, VERTEX);
 	float shore = 1.0 - smoothstep(0.0, shore_foam_distance, shore_depth);
 
 	// Normals: bicubic up close, filtered beyond; strengths calm with distance.
@@ -155,7 +157,9 @@ void fragment() {
 
 	// Foam: flatten the water normal under it, then tilt by the lace relief.
 	FoamSample foam = foam_composite(grid, grid_dx, grid_dy, dist, shore, b > 0.0);
-	slope = slope * (1.0 - foam.coverage * foam_flatten) + foam.relief * foam_relief * b;
+	// Relief only where foam is solid (water specular is already off there). In thin lace the tilted normals would
+	// reflect sky as blue streaks and emboss the foam with its own shadows.
+	slope = slope * (1.0 - foam.coverage * foam_flatten) + foam.relief * foam_relief * b * smoothstep(0.4, 1.0, foam.coverage);
 	vec3 n = normalize(vec3(-slope.x, 1.0, -slope.y));
 	n = horizon_clamp(n, v, horizon_min);
 
