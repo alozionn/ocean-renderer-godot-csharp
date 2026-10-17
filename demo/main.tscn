@@ -1,9 +1,10 @@
-[gd_scene load_steps=8 format=3]
+[gd_scene load_steps=9 format=3]
 
 [ext_resource type="PackedScene" path="res://ocean/ocean.tscn" id="1_ocean"]
 [ext_resource type="PackedScene" path="res://demo/props/rock.tscn" id="2_rock"]
 [ext_resource type="Script" path="res://demo/camera/FreeFlyCamera.cs" id="3_camera"]
 [ext_resource type="Script" path="res://demo/DemoRoot.cs" id="4_root"]
+[ext_resource type="PackedScene" path="res://demo/ui/ParameterPanel.tscn" id="5_panel"]
 
 [sub_resource type="Sky" id="Sky_1"]
 radiance_size = 2
@@ -42,8 +43,37 @@ transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 120, -8, -160)
 
 [node name="Ocean" parent="." instance=ExtResource("1_ocean")]
 
+[node name="UI" type="CanvasLayer" parent="."]
+
+[node name="OceanPanel" parent="UI" instance=ExtResource("5_panel")]
+anchors_preset = 9
+anchor_bottom = 1.0
+offset_left = 8.0
+offset_top = 8.0
+offset_right = 448.0
+offset_bottom = -8.0
+grow_vertical = 2
+Title = "Ocean"
+
+[node name="EnvironmentPanel" parent="UI" instance=ExtResource("5_panel")]
+anchors_preset = 3
+anchor_left = 1.0
+anchor_top = 1.0
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = -408.0
+offset_top = -300.0
+offset_right = -8.0
+offset_bottom = -8.0
+grow_horizontal = 0
+grow_vertical = 0
+ToggleKey = 4194333
+Title = "Environment"
+
 [node name="DemoRoot" type="Node" parent="."]
 script = ExtResource("4_root")
 OceanPath = NodePath("../Ocean")
 EnvironmentPath = NodePath("../WorldEnvironment")
 SunPath = NodePath("../Sun")
+OceanPanelPath = NodePath("../UI/OceanPanel")
+EnvironmentPanelPath = NodePath("../UI/EnvironmentPanel")

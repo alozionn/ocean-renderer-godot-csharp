@@ -1,0 +1,8 @@
+[gd_scene load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://demo/ui/rows/BoolRow.cs" id="1"]
+
+[node name="BoolRow" type="CheckBox"]
+
+script = ExtResource("1")
+

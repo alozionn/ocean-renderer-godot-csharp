@@ -4,6 +4,7 @@ using System.Linq;
 using System.Threading.Tasks;
 using Godot;
 using OceanDemo;
+using Ocean.Core.Parameters;
 using OceanNode = Ocean.Ocean;
 
 namespace OceanDev;
@@ -40,10 +41,48 @@ public partial class DevHarness : Node
         if (_args.TryGetValue("sky", out var sky)) _demo.Sky.Apply(sky);
         if (_args.TryGetValue("preset", out var preset))
             _ocean.LoadConfig(preset.Contains('/') ? preset : $"res://demo/presets/{preset.TrimSuffix(".json")}.json");
+        if (_args.TryGetValue("set", out var sets))
+            foreach (var s in sets.Split(';')) SetParameter(s);
+        if (_args.ContainsKey("panels")) ShowPanels(GetTree().Root);
         _ = RunAsync();
     }
 
     static T Find<T>(Node n) where T : Node => n as T ?? n.GetChildren().Select(Find<T>).FirstOrDefault(c => c != null);
+
+    /// <summary>--set=<id>=<value>: sets any parameter the demo shows, parsed by its kind.</summary>
+    void SetParameter(string assignment)
+    {
+        var kv = assignment.Split('=', 2);
+        var p = _demo.AllSets.SelectMany(s => s.Parameters).FirstOrDefault(x => x.Id == kv[0]);
+        if (p == null || (kv.Length < 2 && p.Kind != ParameterKind.Action))
+        {
+            GD.PushError($"--set: unknown parameter {kv[0]}");
+            return;
+        }
+        var inv = System.Globalization.CultureInfo.InvariantCulture;
+        string v = kv.Length > 1 ? kv[1] : "";
+        switch (p.Kind)
+        {
+            case ParameterKind.Float: p.Set(float.Parse(v, inv)); break;
+            case ParameterKind.Int: p.Set(int.Parse(v, inv)); break;
+            case ParameterKind.Bool: p.Set(bool.Parse(v)); break;
+            case ParameterKind.Enum: p.Set(v); break;
+            case ParameterKind.Color:
+                var c = v.StartsWith('#') ? Color.FromHtml(v) : new Color(ParsePose(v)[0], ParsePose(v)[1], ParsePose(v)[2]);
+                p.Set(new System.Numerics.Vector3(c.R, c.G, c.B));
+                break;
+            case ParameterKind.Action: p.Invoke(); break;
+        }
+        GD.Print($"set {p.Id} = {p.Value}");
+    }
+
+    /// <summary>--panels: shows every parameter panel with its sections unfolded, for UI captures.</summary>
+    static void ShowPanels(Node n)
+    {
+        if (n is OceanDemo.UI.ParameterPanel panel) panel.Visible = true;
+        if (n is FoldableContainer fold) fold.Folded = false;
+        foreach (var c in n.GetChildren()) ShowPanels(c);
+    }
 
     static float[] ParsePose(string s) => s.Split(',').Select(v => float.Parse(v, System.Globalization.CultureInfo.InvariantCulture)).ToArray();
 

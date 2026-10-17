@@ -1,0 +1,7 @@
+[gd_scene format=3]
+
+[node name="Section" type="FoldableContainer"]
+folded = true
+
+[node name="Content" type="VBoxContainer" parent="."]
+layout_mode = 2

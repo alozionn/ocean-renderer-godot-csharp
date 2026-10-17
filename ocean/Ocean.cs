@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using Godot;
 using Ocean.Core.Config;
+using Ocean.Core.Parameters;
 using Ocean.Core.Scheduling;
 using Ocean.Foam;
 using Ocean.Simulation;
@@ -19,9 +20,14 @@ public partial class Ocean : Node3D
 
     /// <summary>The live config. Change it through <see cref="Apply"/> or <see cref="Parameters"/>.</summary>
     public OceanConfig Config => _config;
+    /// <summary>Live knobs for UIs and tools; built in _Ready.</summary>
+    public IReadOnlyList<ParameterSet> Parameters => _parameters;
     public event Action ConfigChanged;
 
     OceanConfig _config = OceanConfig.Default;
+    List<ParameterSet> _parameters = new();
+    double _rateClock;
+    long _rateTicks;
     RenderingDevice _rd;
     OceanPipelines _pipelines;
     OceanCascade[] _cascades = Array.Empty<OceanCascade>();
@@ -40,6 +46,7 @@ public partial class Ocean : Node3D
     internal ShaderMaterial Material => _material;
     /// <summary>Cascade ticks recorded since start, for readouts.</summary>
     internal long CascadeTicks { get; private set; }
+    internal float CascadeTickRate { get; private set; }
 
     public OceanConfig Snapshot() => _config.Clone();
 
@@ -77,6 +84,7 @@ public partial class Ocean : Node3D
         BuildCascades();
         SetFoamDetail();
         ApplySurfaceOverrides(_config.Surface.Keys);
+        _parameters = OceanParameters.Build(this);
     }
 
     public override void _ExitTree()
@@ -92,6 +100,12 @@ public partial class Ocean : Node3D
     {
         _clock += delta;
         Simulate();
+        if (_clock - _rateClock >= 1.0)
+        {
+            CascadeTickRate = (float)((CascadeTicks - _rateTicks) / (_clock - _rateClock));
+            _rateClock = _clock;
+            _rateTicks = CascadeTicks;
+        }
         var camera = GetViewport().GetCamera3D();
         if (camera != null)
         {
@@ -154,6 +168,8 @@ public partial class Ocean : Node3D
         if (diff.FoamTexture) SetFoamDetail();
         ApplySurfaceOverrides(diff.Surface);
         SetCascadeUniforms();
+        foreach (var set in _parameters)
+            foreach (var p in set.Parameters) p.Refresh();
         ConfigChanged?.Invoke();
     }
 

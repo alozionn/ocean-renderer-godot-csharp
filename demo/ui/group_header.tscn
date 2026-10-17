@@ -1,0 +1,6 @@
+[gd_scene format=3]
+
+[node name="GroupHeader" type="Label"]
+modulate = Color(0.7, 0.8, 0.85, 1)
+theme_override_font_sizes/font_size = 12
+uppercase = true

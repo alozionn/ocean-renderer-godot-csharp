@@ -15,6 +15,8 @@ public sealed class SkyRig
     public SkyPreset Current { get; private set; }
     public float Yaw { get; private set; }
     public float SunElevation { get; private set; }
+    public float SkyEnergy => (float)_env.Environment.Sky.SkyMaterial.Get("energy_multiplier");
+    public float SunEnergy => _sun.LightEnergy;
 
     public SkyRig(WorldEnvironment env, DirectionalLight3D sun, string presetsPath)
     {
@@ -61,6 +63,10 @@ public sealed class SkyRig
         SunElevation = elevation;
         UpdateSun();
     }
+
+    public void SetSkyEnergy(float energy) => _env.Environment.Sky.SkyMaterial.Set("energy_multiplier", energy);
+
+    public void SetSunEnergy(float energy) => _sun.LightEnergy = energy;
 
     void UpdateSun()
     {

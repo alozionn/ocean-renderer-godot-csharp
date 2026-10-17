@@ -1,0 +1,45 @@
+[gd_scene load_steps=12 format=3]
+
+[ext_resource type="Script" path="res://demo/ui/ParameterPanel.cs" id="1_panel"]
+[ext_resource type="Theme" path="res://demo/ui/demo_theme.tres" id="2_theme"]
+[ext_resource type="PackedScene" path="res://demo/ui/section.tscn" id="3_section"]
+[ext_resource type="PackedScene" path="res://demo/ui/group_header.tscn" id="4_group"]
+[ext_resource type="PackedScene" path="res://demo/ui/rows/FloatRow.tscn" id="5_float"]
+[ext_resource type="PackedScene" path="res://demo/ui/rows/IntRow.tscn" id="6_int"]
+[ext_resource type="PackedScene" path="res://demo/ui/rows/BoolRow.tscn" id="7_bool"]
+[ext_resource type="PackedScene" path="res://demo/ui/rows/EnumRow.tscn" id="8_enum"]
+[ext_resource type="PackedScene" path="res://demo/ui/rows/ColorRow.tscn" id="9_color"]
+[ext_resource type="PackedScene" path="res://demo/ui/rows/ActionRow.tscn" id="10_action"]
+[ext_resource type="PackedScene" path="res://demo/ui/rows/ReadoutRow.tscn" id="11_readout"]
+
+[node name="ParameterPanel" type="PanelContainer"]
+visible = false
+offset_right = 420.0
+offset_bottom = 600.0
+theme = ExtResource("2_theme")
+script = ExtResource("1_panel")
+SectionScene = ExtResource("3_section")
+GroupScene = ExtResource("4_group")
+FloatRow = ExtResource("5_float")
+IntRow = ExtResource("6_int")
+BoolRow = ExtResource("7_bool")
+EnumRow = ExtResource("8_enum")
+ColorRow = ExtResource("9_color")
+ActionRow = ExtResource("10_action")
+ReadoutRow = ExtResource("11_readout")
+
+[node name="Box" type="VBoxContainer" parent="."]
+layout_mode = 2
+
+[node name="Title" type="Label" parent="Box"]
+layout_mode = 2
+theme_override_font_sizes/font_size = 15
+
+[node name="Scroll" type="ScrollContainer" parent="Box"]
+layout_mode = 2
+size_flags_vertical = 3
+horizontal_scroll_mode = 0
+
+[node name="Sections" type="VBoxContainer" parent="Box/Scroll"]
+layout_mode = 2
+size_flags_horizontal = 3

@@ -1,0 +1,16 @@
+[gd_scene load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://demo/ui/rows/EnumRow.cs" id="1"]
+
+[node name="EnumRow" type="HBoxContainer"]
+
+script = ExtResource("1")
+
+[node name="Label" type="Label" parent="."]
+custom_minimum_size = Vector2(150, 0)
+layout_mode = 2
+clip_text = true
+
+[node name="Options" type="OptionButton" parent="."]
+layout_mode = 2
+size_flags_horizontal = 3
