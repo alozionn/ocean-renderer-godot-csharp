@@ -32,7 +32,7 @@ environment = SubResource("Env_1")
 transform = Transform3D(1, 0, 0, 0, 0.964, 0.266, 0, -0.266, 0.964, 0, 0, 0)
 
 [node name="Camera" type="Camera3D" parent="." unique_id=1823043338]
-transform = Transform3D(0.913545, 0.221530, -0.341120, 0, 0.838671, 0.544639, 0.406737, -0.497562, 0.766160, 0, 52, -40)
+transform = Transform3D(0.913545, 0.22153, -0.34112, 0, 0.838671, 0.544639, 0.406737, -0.497562, 0.76616, 0, 52, -40)
 fov = 70.0
 far = 8000.0
 script = ExtResource("3_camera")

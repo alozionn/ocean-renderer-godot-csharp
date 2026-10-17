@@ -1,9 +1,23 @@
 # FFT Ocean for Godot 4.7 (C#)
 
+https://github.com/alozionn/ocean-renderer-godot-csharp/raw/main/docs/ocean_showcase.mp4
+
+[![The ocean at the demo's default view: breeze preset, crest foam dissolving into trails, sun glint behind a rock island](docs/ocean_showcase_img.png)](docs/ocean_showcase.mp4)
+
 A drop-in, GPU-simulated ocean for Godot 4.7 .NET (Forward+). Three FFT cascades run in GLSL compute on the main
-`RenderingDevice`, a camera-local foam field turns breaking crests into whitecaps that age into streaky trails, and a
+`RenderingDevice`, a camera-local foam field turns breaking crests into whitecaps that age into soft trails, and a
 single spatial shader does the sky-driven, painterly shading. It runs at well over 1000 fps at 1080p on a current
 desktop GPU.
+
+## The guide (`OCEAN_GUIDE.md`)
+
+This project was built by an AI coding agent from a single written brief, [`OCEAN_GUIDE.md`](OCEAN_GUIDE.md), and then
+refined with feedback. The guide is the brief, kept up to date: every technical choice and value in this repository,
+why it was chosen, what was tried and rejected, the engine facts that trip people up (Godot 4.7, D3D12), the
+verification steps, and the bugs that were already paid for. Read it if you want to understand why the ocean looks and
+performs the way it does, change it without re-learning those lessons, or rebuild it in another engine. Handing it to
+an agent in an empty Godot 4.7 C# project is meant to reproduce this repository; the "Findings" section at the top lists
+the hard-won lessons with pointers to where each is specified.
 
 The repository has three layers:
 
@@ -160,9 +174,29 @@ without them.
 Godot exports only resources by default: add `*.json` to the export preset's "Filters to export non-resource files" so
 the presets (`demo/presets/*.json`, including `skies.json`) and any ocean `ConfigPath` ship with the build.
 
-## Credits
+## Credits and references
 
-See `THIRD_PARTY_NOTICES.md`: Crest foam texture (MIT, Wave Harmonic), ambientCG Foam001 (CC0, Lennart Demes), Evening
+This ocean stands on other people's work. Ideas, formulas and a little code came from:
+
+- **Jerry Tessendorf, "Simulating Ocean Water"** (SIGGRAPH course notes, 2001): the FFT ocean itself (statistical
+  spectrum, time evolution, choppy displacement, the Jacobian as the foam signal).
+- **Sea of Thieves, "The Technical Art of Sea of Thieves"** ([talk](https://www.youtube.com/watch?v=y9BOz2dFZzs)): the
+  techniques and the overall direction. Foam accumulated in a render target and progressively blurred, sharp crest
+  texture blending to a softer one as foam ages, foam blended into the water colour, and the stylised, sky-driven look.
+- **Atlas, "Wakes, Explosions and Lighting: Interactive Water Simulation in Atlas"** (GDC 2019,
+  [talk](https://www.youtube.com/watch?v=Dqld965-Vv0)): the subsurface scatter term (crest, view-facing, sun-facing and
+  bubble lobes) and the rough-surface Fresnel fit used in `lighting.gdshaderinc` and `ocean.gdshader`.
+- **Acerola, "I Tried Simulating The Entire Ocean"** ([video](https://www.youtube.com/watch?v=yPfagLeUa7k)): the
+  multi-cascade FFT ocean approach and much of the practical intuition for making it look good.
+- **2Retr0, [GodotOceanWaves](https://github.com/2Retr0/GodotOceanWaves)**: FFT ocean waves in Godot with compute
+  shaders on the main `RenderingDevice`; a reference for how to structure that in Godot.
+- **[Crest](https://github.com/wave-harmonic/crest)** (Wave Harmonic): the default foam texture (MIT) and the foam
+  erosion idea (thin foam keeps only the brightest parts of the texture).
+- Thomas Mikkelsen, "Practical Real-Time Hex-Tiling" (2022): the tiling that hides the foam texture's repeat.
+- JONSWAP spectrum (Hasselmann et al. 1973) with Donelan-Banner directional spreading, as collected for graphics by
+  Horvath, "Empirical directional wave spectra for computer graphics" (2015).
+
+Assets, see `THIRD_PARTY_NOTICES.md`: Crest foam texture (MIT, Wave Harmonic), ambientCG Foam001 (CC0, Lennart Demes), Evening
 Road 01 (CC0, Poly Haven: Sergej Majboroda, Jarod Guest), Cloudy Skyboxes (CC0, Screaming Brain Studios), Debug Menu
 (MIT, Hugo Locurcio and contributors). Each asset folder has a README with source, licence and processing.
 

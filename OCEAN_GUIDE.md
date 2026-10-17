@@ -8,6 +8,36 @@ Every technical choice and value below was verified in an earlier build: the sim
 
 Placeholders: `<godot>` = the Godot 4.7 **mono** console executable; `<project>` = this folder.
 
+`docs/ocean_showcase_img.png` and `docs/ocean_showcase.mp4` show what the finished build looks like (breeze preset, the demo's default view). Sources and inspirations are listed in section 20.
+
+## Findings (read these first)
+
+What building and refining this ocean taught, each with where it is specified. Every one of them was a visible bug or a wasted iteration once.
+
+**Look**
+- **Foam follows Sea of Thieves:** a progressively blurred foam field plus a sharp crest texture that blends to a softer version as foam ages (9 intro, 9.2, 9.3).
+- **The foam body must stay coherent:** the tail is the crest texture at the same place, only blurred; age starts late (0.6); the tail is fainter (0.6); the blur is moderate (1.5 / 0.3 m²/s). A separate low-frequency texture, early age or strong blur made blobs and "too much foam all at once" (9 intro, 9.3, 7).
+- **Use exactly the specified lighting recipe:** small deviations made a dark "shadow" in the foam veil, blue streaks along lace edges and embossed foam. Fix the lighting, never hide the lace relief (9.3, 9.4).
+- **Anisotropic filtering on the sharp crest texture only:** without it foam smears into streaks; on every tap it costs 0.05 ms for nothing (9.3).
+- **Hex tiling needs an integer hash:** a `sin` hash gave hard straight seams with sheared foam. Don't add a luminance-weighted blend or halve the rotation range either (4, 9.3).
+- **Shore depth is measured along the view ray:** a vertical depth made every crest above the horizon transparent (10).
+- **Displacement is mip-filtered to each vertex's spacing:** point-sampled, the outer rings alias and the far sea swims as the camera moves, with fake crests that get no foam (8.2, 8.3, 10).
+- **Distant crests keep foam:** `foam_fade_range` 400 m; 220 m left crests beyond ~300 m bare (9.5).
+- **Verify sky sun positions by capture:** automatic measurement from the image was up to 13° off (11).
+
+**Process**
+- **Compare A/B on the same frame:** captures restart the simulation, so the same pose gives the same sea (13).
+- **Isolate the layer before changing anything:** debug-render field, detail texture, coverage and normals on one frame (14).
+- **Check heavy foam, not just calm:** judge foam under `ocean_breeze` at 1:1, plus a low eye-level pose; calm hides texture defects (14).
+- **Measure every GPU cost:** 3 bench runs each way, and justify it with a same-frame capture (1, 19).
+- **Port verified recipes as written:** "improving" one from memory of a paper caused regressions (19).
+- **Streak anisotropy is report-only:** it stays near 1 because crest lines are as long as trails (9.6).
+
+**Engine and tooling**
+- **Ship builds strip `dev/`:** rebuild normally before the next dev run, or Godot hangs (13).
+- **Exports skip `.json` by default:** add `*.json` to the export filter or presets, skies and configs go missing (4).
+- **Godot imports every folder:** `docs/`, `tests/` and `.scratch/` carry a `.gdignore` (3).
+
 ---
 
 ## 0. Working rules
@@ -108,7 +138,7 @@ Rules:
 - File-scoped namespaces: `Ocean.*` for the renderer (`Ocean.Core.Spectrum`, `Ocean.Simulation`, …), `OceanDemo.*`, `OceanDev.*`.
 - Compact code and comments, no dead code, no Manager/Service layers, no speculative systems. The scope of the parameter system is fixed in section 12; don't grow it.
 - **Ship check:** the csproj has `<Compile Remove="dev/**" Condition="'$(Ship)'=='true'" />`. `dotnet build -p:Ship=true` must succeed, and the demo must run without `dev/`.
-- Godot imports every folder under `res://`: put an empty `.gdignore` in `tests/` and `.scratch/`. The game csproj needs `<Compile Remove="tests/**;.scratch/**" />`.
+- Godot imports every folder under `res://`: put an empty `.gdignore` in `tests/`, `.scratch/` and `docs/` (screenshots and videos must not be imported into the game). The game csproj needs `<Compile Remove="tests/**;.scratch/**" />`.
 
 ---
 
@@ -557,7 +587,8 @@ Yaw 0 faces the sun on every panorama preset. Bursts at `close_down` and `hero`:
 
 ## 16. Licences and release files
 
-- `LICENSE`: MIT, `Copyright (c) 2026 <AUTHOR>`. Leave `<AUTHOR>` as a literal placeholder for the owner to fill in.
+- `LICENSE`: MIT, `Copyright (c) 2026 <AUTHOR>`. Leave `<AUTHOR>` as a literal placeholder for the owner (the published repository carries the owner's name) to fill in.
+- `README.md` credits the sources in section 20 (Tessendorf, Sea of Thieves, Atlas, Acerola, 2Retr0, Crest, Mikkelsen, JONSWAP/Horvath) and embeds the showcase video.
 - `THIRD_PARTY_NOTICES.md`: Crest foam texture (URL + full MIT notice); ambientCG Foam001 (CC0, credit Lennart Demes); Evening Road 01 (Poly Haven, CC0, Sergej Majboroda and Jarod Guest); Cloudy Skyboxes (Screaming Brain Studios, CC0); Debug Menu (Hugo Locurcio and contributors, MIT).
 - `README.md`: what it is; drop-in usage (copy `ocean/`, instance `ocean.tscn`, optional JSON config, `Apply`/`LoadConfig`/`Parameters`); the demo keys (F1 ocean panel, F2 environment panel, F3 Debug Menu; WASD, Q/E, hold RMB, Shift, wheel); config format with an example; how per-frame GPU work is scheduled; the foam pipeline in one paragraph; how to run the tests (`dotnet run --project tests/Ocean.Tests`, `<godot> --path . res://dev/dev_main.tscn -- --selftest`); measured FPS; asset credits. Keep `dev/` documented in its own short `dev/README.md`.
 
@@ -608,3 +639,16 @@ Yaw 0 faces the sun on every panorama preset. Bursts at `close_down` and `hero`:
 - Sky sun positions from automatic image measurement → up to 13° off; verify every sky by capture.
 - Captures at different sim times compared as A/B → the "difference" is just different waves; captures restart the sim.
 - A dev run right after a `-p:Ship=true` build → `DevHarness` missing, Godot hangs instead of quitting.
+
+## 20. References
+
+The work this ocean is built on. Credit them in the README of any build made from this guide.
+
+- **Jerry Tessendorf, "Simulating Ocean Water"** (SIGGRAPH course notes, 2001). This is the FFT ocean of section 8: statistical spectrum, time evolution, choppy displacement, and the Jacobian as the foam signal.
+- **Sea of Thieves, "The Technical Art of Sea of Thieves"** (https://www.youtube.com/watch?v=y9BOz2dFZzs). The techniques and overall direction: the progressively blurred foam render target, the crest texture blending to a softer one with age, foam blended into the water colour, and the stylised, sky-driven look (sections 2, 9).
+- **Atlas, "Wakes, Explosions and Lighting: Interactive Water Simulation in Atlas"** (GDC 2019, https://www.youtube.com/watch?v=Dqld965-Vv0). The subsurface scatter term (k1 crest, k2 view-facing, k3 sun-facing, k4 bubbles) and the rough-surface Fresnel fit (sections 9.4, 10).
+- **Acerola, "I Tried Simulating The Entire Ocean"** (https://www.youtube.com/watch?v=yPfagLeUa7k). The multi-cascade FFT ocean approach and practical shading intuition.
+- **2Retr0, GodotOceanWaves** (https://github.com/2Retr0/GodotOceanWaves). An FFT ocean in Godot with compute on the main `RenderingDevice`; a reference for structuring it in Godot (section 4).
+- **Crest, Wave Harmonic** (https://github.com/wave-harmonic/crest). The default foam texture (MIT, section 5.4) and the lace-erosion idea (section 9.3).
+- **Thomas Mikkelsen, "Practical Real-Time Hex-Tiling"** (2022). The foam texture tiling (section 9.3).
+- **JONSWAP** (Hasselmann et al. 1973) with **Donelan-Banner** spreading, as collected for graphics in Christopher J. Horvath, "Empirical directional wave spectra for computer graphics" (2015). Section 8.1.
