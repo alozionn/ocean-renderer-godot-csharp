@@ -18,9 +18,6 @@ public sealed class TickScheduler
         Reset(rate, clock);
     }
 
-    public int Clients => _next.Length;
-    public double Interval => _interval;
-
     public void Reset(double rate, double clock)
     {
         _interval = 1.0 / rate;

@@ -33,7 +33,6 @@ public sealed class PushConstantLayout
     /// <summary>std430 size, which is also the alignment for these types.</summary>
     public static int SizeOf(PushField t) => t switch { PushField.Vec2 or PushField.IVec2 => 8, PushField.Vec4 => 16, _ => 4 };
 
-    public int Offset(string name) => _offsets[name];
     public byte[] CreateBuffer() => new byte[Size];
 
     public void Set(byte[] b, string name, float v) => BinaryPrimitives.WriteSingleLittleEndian(b.AsSpan(_offsets[name]), v);
