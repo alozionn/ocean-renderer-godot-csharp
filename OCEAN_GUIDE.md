@@ -373,7 +373,7 @@ float foam_lace(float body, float detail) {   // Crest-style erosion: thin foam 
 
 **Milk** (turbid water around foam): `smoothstep(0, milk_range, density + shore) · milk_strength` tints the body towards `milk_color`.
 
-**Foam relief:** within the bicubic range, two extra lace samples at `uv + (ε, 0)` and `uv + (0, ε)` (ε = 0.01) give the lace gradient in texture space; map it back to grid space through the streak rotation, stretch and tile, and tilt the normal by `−gradient · foam_relief`.
+**Foam relief:** within the bicubic range, two extra lace samples at `uv + (ε, 0)` and `uv + (0, ε)` (ε = 0.01) give the lace gradient in texture space; map it back to grid space through the streak rotation, stretch and tile, and tilt the normal by `−gradient · foam_relief · smoothstep(0.4, 1, coverage)`. **Gate it to solid foam**: in thin lace (coverage below 0.4) water specular is still on, so relief-tilted normals reflect the sky as blue streaks along the lace edges and the foam looks embossed with its own shadows instead of blending into the water.
 
 ### 9.4 Foam lighting
 - Albedo `foam_color` (0.82, 0.84, 0.84), × `mix(0.85, 1, saturate(v_height / 1.5 + 0.5))` so foam darkens in troughs.
@@ -418,7 +418,7 @@ These are a safety net; the captures decide.
 - **Distance calming:** normal strength × `mix(normal_fade_floor 0.12, 1, exp(−d / normal_fade_range 220))`; chop fades out by 600 m, ripples by 120 m. Don't turn the removed slope into roughness: the rough-surface Fresnel drops and the far field goes dark brown.
 - **Roughness:** LEAN-style variance `Σ strength² · max(slope.w − |slope.xy|², 0)` with the un-calmed strengths, **only beyond the bicubic range** (up close it makes dark blotches); `α = sqrt(roughness⁴ + variance)`, roughness 0.12, `variance_roughness` 1.
 - **Horizon clamp** (no black facets): before writing `NORMAL`, if the world reflection `reflect(−v, n).y < horizon_min` (0.03), tilt `n` towards up until it isn't.
-- **Depth and refraction:** water thickness along the refracted ray; reject refraction samples in front of the surface; refraction offset in **view space** (`refraction_strength` 0.04); shore depth for shore foam and `ALPHA = smoothstep(0, shore_fade_distance, shore_depth)`.
+- **Depth and refraction:** water thickness along the refracted ray; reject refraction samples in front of the surface; refraction offset in **view space** (`refraction_strength` 0.04); shore depth for shore foam and `ALPHA = smoothstep(0, shore_fade_distance, shore_depth)`. **Shore depth is the distance along the view ray** from the surface to the opaque point behind it (`distance(behind_view_pos, VERTEX)`), never the vertical drop `surface.y − behind.y`: with sky behind, the "behind" point is on the far plane, which for a crest seen against the sky lies *above* the water, so a vertical depth clamps to 0 and every crest above the horizon turns transparent (the water looks cut flat at the horizon line).
 - **Colour:** scatter = mix(shallow (0.12,0.2,0.24), deep (0.03,0.05,0.07), 1 − exp(−thickness / 6)) × body_tint (1,1,1); mix towards height tint (0.1,0.22,0.25) by `smoothstep(0, 2.5, v_height) · 0.1`; milk; transmittance `pow(water_transmittance (0.35,0.75,0.8), thickness / absorption_distance 4)`. `ALBEDO = scatter(1−T)(1−F)`, `EMISSION = refracted · T · (1−F)`, `SPECULAR = 0.354` (f0 = 0.02).
 - **`light()`:** GGX with height-correlated Smith `1/(1+Λv+Λl)` and the Atlas rough-surface Fresnel `f0 + (1−f0)·(1−NdotV)^(5·e^(−2.69α)) / (1 + 22.7·α^1.5)`, × radiance/π × `specular_strength` (1) × (1 − foam) into `SPECULAR_LIGHT`. Atlas scatter (GDC 2019): k1 crest towards the sun `sss_crest 2 · crest · pow(saturate(dot(L, −V)), 4) · pow(saturate(0.5 − 0.5·dot(L, N)), 3)` with crest = `max(v_height, 0) · 0.6`; k2 view-facing `sss_view 0.4 · pow(saturate(dot(V, N)), 2)`; k3 sun-facing `sss_sun 0.1 · NdotL`; k4 bubbles `sss_bubbles 0.35 · bubbles · bubble_color (0.6,0.66,0.66)`; (k1 + k2)/(1+Λl) + k3, all × `sss_color (0.08,0.22,0.24)` × radiance/π × (1−F) into `SPECULAR_LIGHT`. Keep these modest or crests go neon green.
 - `SurfaceUniforms.cs` holds every uniform name C# sets; C# uses only these constants.
@@ -503,7 +503,7 @@ Look at the full-resolution captures, not only the contact sheet: a downscaled s
 
 Yaw 0 faces the sun on every panorama preset. Bursts at `close_down` and `hero`: foam drifts with the water, caps age into trails, nothing pops between frames. Compare the hero capture against `docs/reference.webp`.
 
-**Also capture under `ocean_breeze`**, at least `mid_close` and `close`, and inspect 1:1 crops. Calm has so little foam that foam-texture defects (seams, visible repetition, sheared patches) stay invisible there; heavy foam at 30–100 m shows them at once.
+**Also capture under `ocean_breeze`**, at least `mid_close`, `close` and a low eye-level pose (`--cam=0,3,0,2,0 --capture=current`: crests must rise above the horizon, not be cut flat), and inspect 1:1 crops. Calm has so little foam that foam-texture defects (seams, visible repetition, sheared patches) stay invisible there; heavy foam at 30–100 m shows them at once.
 
 **When something looks wrong, isolate the layer before changing anything.** On one deterministic frame, temporarily write each layer to `EMISSION` (zero `ALBEDO`, `SPECULAR` and the light-path varyings): the foam field (`foam_field_lookup`), the detail texture (`foam_hex` alone, then plain `textureGrad`), coverage/white, the normal. The layer where the artefact first appears is the cause. Change one thing at a time and diff against the same frame. Don't guess at causes from a single beauty shot: the seam bug above first looked like mesh undersampling, then like culled fold triangles, and was neither.
 
@@ -565,6 +565,8 @@ Yaw 0 faces the sun on every panorama preset. Bursts at `close_down` and `hero`:
 - Judging from one distance or from stills only.
 - `sin`-based hash for the hex-tiling vertices → hard straight seams and sheared foam patches (section 9.3). Use the integer hash.
 - Foam detail without anisotropic filtering → foam smeared into stretched streaks instead of wispy lace (section 9.3).
+- Shore depth as a vertical drop → crests above the horizon turn transparent; use the distance along the view ray (section 10).
+- Foam relief in thin lace → blue sky-reflection streaks and embossed foam; gate it to solid coverage (section 9.3).
 - "Improving" a verified shader recipe from memory of a paper (luminance blend, halved rotation) → a look regression. Port the recipe as written; change one thing at a time against same-frame captures.
 - Foam diffuse weighted by coverage on top of the coverage-blended `ALBEDO` → coverage² lighting, grey-blue foam.
 - Judging foam only under the calm preset → texture defects stay hidden; check breeze at mid distance too.
