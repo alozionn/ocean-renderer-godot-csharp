@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using Godot;
 using Ocean.Core.Config;
 using Ocean.Core.Scheduling;
+using Ocean.Foam;
 using Ocean.Simulation;
 using Ocean.Surface;
 
@@ -25,6 +26,7 @@ public partial class Ocean : Node3D
     OceanPipelines _pipelines;
     OceanCascade[] _cascades = Array.Empty<OceanCascade>();
     bool[] _spectrumDirty = Array.Empty<bool>();
+    OceanFoamField _near, _far;
     TickScheduler _scheduler;
     double _clock;
     MeshInstance3D _surface;
@@ -33,11 +35,21 @@ public partial class Ocean : Node3D
 
     internal OceanPipelines Pipelines => _pipelines;
     internal IReadOnlyList<OceanCascade> Cascades => _cascades;
+    internal OceanFoamField NearField => _near;
+    internal double Clock => _clock;
     internal ShaderMaterial Material => _material;
     /// <summary>Cascade ticks recorded since start, for readouts.</summary>
     internal long CascadeTicks { get; private set; }
 
     public OceanConfig Snapshot() => _config.Clone();
+
+    /// <summary>Restarts the simulation: cascade time 0, foam fields emptied on their next tick.</summary>
+    internal void Restart()
+    {
+        foreach (var c in _cascades) c.Time = 0;
+        _near?.Reset();
+        _far?.Reset();
+    }
 
     public override void _Ready()
     {
@@ -59,13 +71,18 @@ public partial class Ocean : Node3D
             return;
         }
         if (!string.IsNullOrEmpty(ConfigPath)) _config = ReadConfig(ConfigPath) ?? _config;
+        _near = new OceanFoamField(_pipelines, 1024, 256f);
+        _far = new OceanFoamField(_pipelines, 1024, 2048f);
         _scheduler = new TickScheduler(_config.Cascades.Length + 1, _config.SimulationRate);
         BuildCascades();
+        SetFoamDetail();
         ApplySurfaceOverrides(_config.Surface.Keys);
     }
 
     public override void _ExitTree()
     {
+        _near?.Free();
+        _far?.Free();
         FreeCascades();
         _pipelines?.Free();
         _pipelines = null;
@@ -101,6 +118,19 @@ public partial class Ocean : Node3D
             _cascades[i].RecordTick(list, c);
             CascadeTicks++;
         }
+        if (_near != null && _scheduler.TryTick(_cascades.Length, _clock, false, out double foamDt))
+        {
+            if (list < 0) list = _rd.ComputeListBegin();
+            var camera = GetViewport().GetCamera3D();
+            var p = camera?.GlobalPosition ?? GlobalPosition;
+            var xz = new Vector2(p.X, p.Z);
+            _near.Record(list, xz, (float)foamDt, _config);
+            _far.Record(list, xz, (float)foamDt, _config);
+            _material.SetShaderParameter(SurfaceUniforms.FoamNear, _near.Texture);
+            _material.SetShaderParameter(SurfaceUniforms.FoamFar, _far.Texture);
+            _material.SetShaderParameter(SurfaceUniforms.FoamNearRect, _near.Rect);
+            _material.SetShaderParameter(SurfaceUniforms.FoamFarRect, _far.Rect);
+        }
         if (list >= 0) _rd.ComputeListEnd();
     }
 
@@ -121,6 +151,7 @@ public partial class Ocean : Node3D
             foreach (int i in diff.Spectra) _spectrumDirty[i] = true;
             _scheduler.SetRate(_config.SimulationRate, _clock);
         }
+        if (diff.FoamTexture) SetFoamDetail();
         ApplySurfaceOverrides(diff.Surface);
         SetCascadeUniforms();
         ConfigChanged?.Invoke();
@@ -168,8 +199,12 @@ public partial class Ocean : Node3D
             _material.SetShaderParameter(SurfaceUniforms.Displacement[i], _cascades[i].DisplacementTexture);
             _material.SetShaderParameter(SurfaceUniforms.Slope[i], _cascades[i].SlopeTexture);
         }
+        _near?.Bind(_cascades);
+        _far?.Bind(_cascades);
         SetCascadeUniforms();
     }
+
+    void SetFoamDetail() => _material.SetShaderParameter(SurfaceUniforms.FoamDetail, FoamDetailTexture.Load(_root, _config.FoamTexture));
 
     void FreeCascades()
     {
@@ -183,6 +218,7 @@ public partial class Ocean : Node3D
         for (int i = 0; i < Math.Min(3, _config.Cascades.Length); i++) size[i] = _config.Cascades[i].PatchSize;
         _material.SetShaderParameter(SurfaceUniforms.PatchSizes, size);
         _material.SetShaderParameter(SurfaceUniforms.TexelSizes, size / _config.Resolution);
+        _material.SetShaderParameter(SurfaceUniforms.StreakAngle, Mathf.DegToRad(_config.Cascades[0].WindDirection + _config.Foam.StreakAngleOffset));
     }
 
     /// <summary>Writes the named surface overrides to the material; names without an override go back to the shader default.</summary>

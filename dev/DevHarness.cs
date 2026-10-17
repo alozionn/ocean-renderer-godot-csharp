@@ -53,7 +53,8 @@ public partial class DevHarness : Node
         await ToSignal(GetTree(), SceneTree.SignalName.ProcessFrame);
         try
         {
-            if (_args.ContainsKey("selftest")) exit = GpuChecks.Run(_ocean.Pipelines) ? 0 : 1;
+            if (_args.ContainsKey("selftest")) exit = GpuChecks.Run(_ocean.Pipelines) & await FoamTargets() ? 0 : 1;
+            else if (_args.ContainsKey("foam-stats")) await FoamTargets();
             else if (_args.TryGetValue("capture", out var poses)) await Capture(poses.Split(','));
             else if (_args.TryGetValue("burst", out var n)) await Burst(int.Parse(n));
             else if (_args.TryGetValue("bench", out var secs)) await Bench(double.Parse(secs, System.Globalization.CultureInfo.InvariantCulture));
@@ -87,6 +88,41 @@ public partial class DevHarness : Node
         }
         for (int i = 0; i < n; i++) Captures.Save(frames[i], $"{Tag}_burst_{i:D2}");
         Captures.Save(Captures.Sheet(frames, 4, 640), $"{Tag}_burst_strip");
+    }
+
+    /// <summary>Foam field targets (section 9.6) after 8 s at the hero pose, at 60 Hz and at 120 Hz.</summary>
+    async Task<bool> FoamTargets()
+    {
+        if (!_args.ContainsKey("cam")) Captures.Place(_camera, Captures.Poses["hero"]);
+        float angle = Mathf.DegToRad(_ocean.Config.Cascades[0].WindDirection + _ocean.Config.Foam.StreakAngleOffset);
+        async Task<FoamMeasure> At(float rate)
+        {
+            var c = _ocean.Snapshot();
+            c.SimulationRate = rate;
+            _ocean.Apply(c);
+            _ocean.Restart();
+            await Wait(8.0);
+            var (caps, trails, window) = FoamStats.Read(_ocean.NearField);
+            var snapshots = new List<float[,]> { window };
+            for (int i = 0; i < 3; i++)
+            {
+                await Wait(1.0);
+                snapshots.Add(FoamStats.Read(_ocean.NearField).Density);
+            }
+            var m = new FoamMeasure(caps, trails, FoamStats.Anisotropy(snapshots, angle));
+            GD.Print($"foam at {rate} Hz: {m}");
+            return m;
+        }
+        float rate0 = _ocean.Config.SimulationRate;
+        var a = await At(60);
+        var b = await At(120);
+        await At(rate0);
+        double rel = Math.Abs(b.Trails - a.Trails) / Math.Max(a.Trails, 1e-9);
+        bool ok = GpuChecks.Report("foam whitecaps 0.3-3 %", (a.Whitecaps >= 0.003 && a.Whitecaps <= 0.03, $"{a.Whitecaps * 100:F2} %"));
+        ok &= GpuChecks.Report("foam trails 3-15 %", (a.Trails >= 0.03 && a.Trails <= 0.15, $"{a.Trails * 100:F2} %"));
+        ok &= GpuChecks.Report("foam 60 vs 120 Hz within 15 %", (rel <= 0.15, $"{rel * 100:F1} % relative"));
+        ok &= GpuChecks.Report("foam streak anisotropy >= 1.25", (a.Anisotropy >= 1.25, $"{a.Anisotropy:F2}"));
+        return ok;
     }
 
     /// <summary>Average and 1 %-low frame time after a 3 s warm-up, at the current pose.</summary>
