@@ -1,0 +1,14 @@
+[remap]
+
+importer="glsl"
+type="RDShaderFile"
+uid="uid://bgccr16idgbop"
+path="res://.godot/imported/mipmap.glsl-4e8de5b9637fc8ea085af448fcea5ac4.res"
+
+[deps]
+
+source_file="res://ocean/simulation/shaders/mipmap.glsl"
+dest_files=["res://.godot/imported/mipmap.glsl-4e8de5b9637fc8ea085af448fcea5ac4.res"]
+
+[params]
+

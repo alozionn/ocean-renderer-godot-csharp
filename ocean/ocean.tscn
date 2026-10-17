@@ -1,0 +1,15 @@
+[gd_scene load_steps=4 format=3]
+
+[ext_resource type="Script" path="res://ocean/Ocean.cs" id="1_ocean"]
+[ext_resource type="Shader" path="res://ocean/surface/ocean.gdshader" id="2_shader"]
+
+[sub_resource type="ShaderMaterial" id="ShaderMaterial_surface"]
+render_priority = 0
+shader = ExtResource("2_shader")
+
+[node name="Ocean" type="Node3D"]
+script = ExtResource("1_ocean")
+
+[node name="Surface" type="MeshInstance3D" parent="."]
+material_override = SubResource("ShaderMaterial_surface")
+cast_shadow = 0
