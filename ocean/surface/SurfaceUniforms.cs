@@ -12,6 +12,6 @@ internal static class SurfaceUniforms
     public const string FoamNearRect = "foam_near_rect";
     public const string FoamFarRect = "foam_far_rect";
     public const string FoamDetail = "foam_detail";
-    public const string FoamDetailSoft = "foam_detail_soft";
+    public const string FoamLow = "foam_low";
     public const string StreakAngle = "foam_streak_angle";
 }

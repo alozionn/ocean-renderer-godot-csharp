@@ -62,8 +62,8 @@ public sealed class FoamConfig
     [Range(0.1, 60, 0.1)] public float InjectRate { get; set; } = 1.2f;
     [Range(0, 5, 0.01)] public float Decay { get; set; } = 0.35f;
     [Range(0, 20, 0.1)] public float FreshDecay { get; set; } = 2.5f;
-    [Range(0, 20, 0.01)] public float DiffuseAlong { get; set; } = 0.35f;
-    [Range(0, 4, 0.01)] public float DiffuseAcross { get; set; } = 0.06f;
+    [Range(0, 20, 0.01)] public float DiffuseAlong { get; set; } = 3f;
+    [Range(0, 4, 0.01)] public float DiffuseAcross { get; set; } = 0.8f;
     [Range(-90, 90, 1)] public float StreakAngleOffset { get; set; }
     [Range(0, 2, 0.01)] public float WeightSwell { get; set; } = 1f;
     [Range(0, 2, 0.01)] public float WeightChop { get; set; } = 1f;

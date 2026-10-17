@@ -30,6 +30,24 @@ public static class FoamDetail
         return MatchCrest(v);
     }
 
+    /// <summary>
+    /// The low-frequency texture aged foam blends to (Sea of Thieves: high-frequency foam at the crest, low-frequency as it
+    /// dissipates): soft, strongly domain-warped clouds, no bubbles, matched to Crest's distribution. Tileable.
+    /// </summary>
+    public static float[] GenerateLow(int size = 256)
+    {
+        var v = new float[size * size];
+        for (int y = 0; y < size; y++)
+            for (int x = 0; x < size; x++)
+            {
+                float u = (x + 0.5f) / size, w = (y + 0.5f) / size;
+                float wx = (Fbm(u, w, 2, 3, 0.5f, 101) - 0.5f) * 2f * 0.2f;
+                float wy = (Fbm(u, w, 2, 3, 0.5f, 113) - 0.5f) * 2f * 0.2f;
+                v[y * size + x] = Fbm(u + wx, w + wy, 3, 4, 0.5f, 127);
+            }
+        return MatchCrest(v);
+    }
+
     /// <summary>Stretches levels from the 1st..99th percentile to 0..1, then a gamma so the mean lands at 0.41.</summary>
     public static float[] MatchCrest(float[] values)
     {
