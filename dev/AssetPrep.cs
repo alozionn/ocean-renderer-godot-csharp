@@ -26,9 +26,6 @@ public static class AssetPrep
 
         foreach (var n in new[] { "07", "03", "17" })
             System.IO.File.Copy(dl + $"x_sbs/Panorama/Panorama_Sky_{n}-512x512.png", Res($"res://demo/skies/sbs_cloudy_sky_{n}.png"), true);
-
-        foreach (var f in new[] { "evening_road_01_puresky", "sbs_cloudy_sky_07", "sbs_cloudy_sky_03", "sbs_cloudy_sky_17" })
-            MeasureSun(f, Image.LoadFromFile(Res($"res://demo/skies/{f}.png")));
     }
 
     /// <summary>Red channel, levels stretched from the 1st..99th percentile, gamma so the mean is 0.41 (Crest's).</summary>
@@ -75,22 +72,4 @@ public static class AssetPrep
         GD.Print($"{name}: {img.GetWidth()}x{img.GetHeight()} mean {red.Average(v => v / 255.0):F3} p10 {Percentile(hist, red.Length, 0.1f) / 255f:F3} p90 {Percentile(hist, red.Length, 0.9f) / 255f:F3}");
     }
 
-    /// <summary>Sun = peak of warmth x brightness, (R - B) * luminance, after a blur (downscale). Prints image azimuth/elevation.</summary>
-    static void MeasureSun(string name, Image img)
-    {
-        img = (Image)img.Duplicate();
-        img.Convert(Image.Format.Rgb8);
-        img.Resize(256, 128, Image.Interpolation.Cubic);
-        img.Resize(512, 256, Image.Interpolation.Cubic);
-        float best = float.MinValue; int bx = 0, by = 0;
-        for (int y = 0; y < 128; y++)
-            for (int x = 0; x < 512; x++)
-            {
-                var c = img.GetPixel(x, y);
-                float score = (c.R - c.B) * (0.2126f * c.R + 0.7152f * c.G + 0.0722f * c.B);
-                if (score > best) { best = score; bx = x; by = y; }
-            }
-        float az = (bx + 0.5f) / 512f * 360f - 180f, el = (0.5f - (by + 0.5f) / 256f) * 180f;
-        GD.Print($"sun {name}: azimuth {az:F1} elevation {el:F1}");
-    }
 }

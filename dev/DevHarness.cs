@@ -188,9 +188,12 @@ public partial class DevHarness : Node
         var images = new List<Image>();
         foreach (var pose in poses)
         {
-            if (!Captures.Poses.TryGetValue(pose, out var p)) { GD.PushError($"unknown pose {pose}"); continue; }
-            Captures.Place(_camera, p);
-            await Wait(3.0);
+            if (pose != "current")
+            {
+                if (!Captures.Poses.TryGetValue(pose, out var p)) { GD.PushError($"unknown pose {pose}"); continue; }
+                Captures.Place(_camera, p);
+            }
+            await Wait(_args.TryGetValue("settle", out var settle) ? double.Parse(settle, System.Globalization.CultureInfo.InvariantCulture) : 3.0);
             var img = await Captures.Grab(this);
             Captures.Save(img, $"{Tag}_{pose}");
             images.Add(img);

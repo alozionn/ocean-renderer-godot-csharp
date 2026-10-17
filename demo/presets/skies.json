@@ -19,23 +19,23 @@
     "id": "pastel_sunset",
     "file": "sbs_cloudy_sky_07.png",
     "sunAzimuth": 89.5,
-    "sunElevation": 23.4,
+    "sunElevation": 21.6,
     "sunColor": [1.0, 0.85, 0.75],
     "sunEnergy": 1.5
   },
   {
     "id": "amber_sunset",
     "file": "sbs_cloudy_sky_03.png",
-    "sunAzimuth": 79.6,
-    "sunElevation": 5.1,
+    "sunAzimuth": 89.9,
+    "sunElevation": 9.2,
     "sunColor": [1.0, 0.8, 0.62],
     "sunEnergy": 1.5
   },
   {
     "id": "violet_sunset",
     "file": "sbs_cloudy_sky_17.png",
-    "sunAzimuth": 97.9,
-    "sunElevation": 1.2,
+    "sunAzimuth": 89.8,
+    "sunElevation": 14.2,
     "sunColor": [1.0, 0.75, 0.6],
     "sunEnergy": 1.5
   }
