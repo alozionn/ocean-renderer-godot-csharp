@@ -1,0 +1,11 @@
+[gd_scene load_steps=3 format=3]
+
+[ext_resource type="PackedScene" path="res://demo/main.tscn" id="1_main"]
+[ext_resource type="Script" path="res://dev/DevHarness.cs" id="2_harness"]
+
+[node name="DevMain" type="Node"]
+
+[node name="Main" parent="." instance=ExtResource("1_main")]
+
+[node name="DevHarness" type="Node" parent="."]
+script = ExtResource("2_harness")
