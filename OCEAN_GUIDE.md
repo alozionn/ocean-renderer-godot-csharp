@@ -232,7 +232,7 @@ public sealed class FoamConfig { Bias, Gain, InjectRate, Decay, FreshDecay, Diff
 | 1 chop | 73 | 8 | 35° | 60 km | 0.1 | 1 | 0.7 | 0.9 |
 | 2 ripples | 13.7 | 5 | 0° | 30 km | 0.02 | 1 | 0.6 | 0.7 |
 
-Foam: Bias 0.6, Gain 5, InjectRate 1.2, Decay 0.35, FreshDecay 2.5, DiffuseAlong 0.35, DiffuseAcross 0.06, StreakAngleOffset 0, weights 1 / 1 / 0.3.
+Foam: Bias 0.6, Gain 5, InjectRate 1.2, Decay 0.35, FreshDecay 2.5, DiffuseAlong 3, DiffuseAcross 0.8, StreakAngleOffset 0, weights 1 / 1 / 0.3. (Diffusion was 0.35 / 0.06 in the previous build: too weak to blur foam within its ~3 s life, so trails kept the crest's shape. Section 9.)
 
 **Breeze:** cascade 0 wind 16, fetch 300 km, height 1.3; cascade 1 wind 11, height 0.85; cascade 2 as calm; foam Bias 0.64, rest as calm.
 
@@ -308,9 +308,11 @@ Spectrum lessons:
 
 Rules: foam shape comes from a **camera-local field fed by the combined Jacobian** at the field's own resolution; never binarise; never drive visible detail with fast-changing fields; accumulate at a rate. **The detail texture decides most of the look**; hex-tile it and sample it softer than the screen needs.
 
+**The model this follows: Sea of Thieves** ("The Technical Art of Sea of Thieves", SIGGRAPH 2018 talk). In the speaker's words, they "progressively blur the render targets", so "where you have the peaks of the waves, you still get these kind of sharp crests, but then that foam gradually dissipates over the progressive blur frame by frame". The foam is then blended with **two** artist textures: "a high-frequency foam texture at the crest of the wave, and then we blend to a lower-frequency texture as it blends out", and finally with the water colour. Here that is: the freshness layer stays sharp (crest), the density layer is blurred every tick (section 9.2, `DiffuseAlong/Across` 3 / 0.8 m²/s), and the surface blends the crest texture to a low-frequency texture by foam age (section 9.3). One texture for both, or weak blur, gives old foam the crest's bubbly detail, so trails read as hard white bars or lace instead of soft dissipating veils.
+
 ### 9.2 Fields (`foam_field.glsl`, `OceanFoamField.cs`)
 Two camera-centred fields: **near** 1024² over 256 m (25 cm texels), **far** 1024² over 2048 m (2 m texels). Same shader and settings; each is snapped to whole texels and ping-pongs between two **RG16F** textures:
-- **R = density**: accumulated foam, slow decay, spreads: the trail layer.
+- **R = density**: accumulated foam, slow decay, spreads: the trail layer. This is Sea of Thieves' "progressive blur": with `DiffuseAlong` 3 and `DiffuseAcross` 0.8 m²/s a trail widens by a few metres over its life, which is what makes it dissipate softly. Foam targets (9.6) still pass at these values (calm: caps 1.3 %, trails 10.4 %).
 - **G = freshness**: same injection, fast decay, barely spreads: the whitecap layer. Always `G ≤ R`.
 
 Per texel, per tick (8×8 threads):
@@ -339,9 +341,11 @@ Push block: origin vec2, texel_size, dt, shift ivec2, size, bias, gain, inject_r
 
 **Detail texture:** greyscale, red channel, mipmapped, set from `OceanConfig.FoamTexture`: `crest` (default), `ambientcg_001`, or `procedural`. `FoamDetailTexture.Generate()` is the fallback, used whenever a file is missing: 512², tileable, domain-warped value-noise fbm (warp: two 3-octave fbms at 3 base cells, ±0.09 UV; clouds: 5 octaves from 4 cells, amplitude ×0.55 per octave), plus soft round bubble spots at 14 and 31 cells per tile (max radius 0.45 / 0.4 cells, smoothstep falloff, the second ×0.8). Bubbles only add where the clouds are bright (`clouds + bubbles · clouds · 0.35`); stretch the result to 0..1; R8 with mipmaps. All three textures use the same look values (tile 14, blur 1.2, softness 0.3, dense shade 0.45). **Any detail texture must match Crest's brightness distribution** (mean 0.41, 10th–90th percentile 0.06–0.73) before use, because the erosion thresholds assume it. Without that, replacements came out as flat white sheets or nearly invisible foam. The ambientCG processing in 5.4 does exactly this, and so must any future texture.
 
+**Low-frequency texture (aged foam):** `foam_low`, always procedural: `FoamDetail.GenerateLow(256)`, generated once at startup. Tileable value-noise fbm, strongly domain-warped (warp: two 3-octave fbms at 2 base cells, ±0.2 UV; clouds: 4 octaves from 3 cells, gain 0.5), no bubbles, matched to Crest's distribution like every detail texture. Tile `foam_low_tile` 14 m (same streak frame and stretch as the crest texture), plain `filter_linear_mipmap`. Tried: ambientCG Foam001 as the low texture, even blurred two more mips, stays bubbly and mottled; a 40 m tile with erosion softness 0.6 reads as cotton blobs.
+
 **Hex tiling** (Mikkelsen 2022, "Practical Real-Time Hex-Tiling"): skew the UV into a triangle grid (`2√3 · density` cells per tile), take the three hex vertices around the pixel, sample once per vertex with a random rotation (`(rand·2 − 1) · foam_hex_rotation`, so 180° = any) about the cell centre plus a random offset, and blend by barycentric weights raised to `foam_hex_contrast` and renormalised. Use `textureGrad` with the screen gradients rotated per copy and × `2^blur`; compute the gradients **before** any branch.
 
-- **Sample the sharp lace layer with `filter_linear_mipmap_anisotropic`.** The texture is stretched along the streak and seen at grazing angles; with isotropic filtering the GPU picks the mip from the long screen axis and the foam smears into long streaks instead of reading as wispy lace. Anisotropic filtering costs ~0.05 ms at 1080p across all foam taps, so bind the same texture twice: `foam_detail` (anisotropic) for `d1` and the two relief taps, `foam_detail_soft` (`filter_linear_mipmap`) for the coarse octave (`blur + 1`) and the veil (`blur + 2`), which are blurred on purpose and look identical either way. That recovers the whole cost.
+- **Sample the sharp lace layer with `filter_linear_mipmap_anisotropic`.** The texture is stretched along the streak and seen at grazing angles; with isotropic filtering the GPU picks the mip from the long screen axis and the foam smears into long streaks instead of reading as wispy lace. Anisotropic filtering costs ~0.05 ms at 1080p across all foam taps, so use it only on `foam_detail` (crest texture: `d1` and the two relief taps); the low-frequency `foam_low` uses plain `filter_linear_mipmap`. (Measured: anisotropic on every foam tap cost 0.05 ms; on the sharp layer only, nothing measurable.)
 - Don't add Mikkelsen's luminance-weighted blend here: it was tried and made the foam harder and less wispy. Don't halve the rotation range either.
 
 - **The per-vertex random rotation/offset must come from an integer hash** (`hash(uint(v.x) + hash(uint(v.y)))`, two floats from `h >> 8` and `hash(h) >> 8`). A vertex is reached from three code paths (it is slot 1, 2 or 3 depending on the triangle); with a `sin` hash each path rounds differently, the same vertex gets a different copy on each side of an edge, and the foam shows **hard straight seams with sheared patches** between them. This shipped once and was only caught by a user at mid distance.
@@ -355,25 +359,29 @@ vec2  uv   = streak_uv(v_grid, streak_angle);   // rotate to the streak directio
 float lod  = smoothstep(foam_lod_start, foam_lod_end, dist);
 float foam = body * foam_far_opacity;           // far: soft coverage only
 if (body + cap > 0.001 && lod < 0.999) {
-    float d1 = hex(uv, foam_detail_blur);
-    float d2 = hex(uv * 0.41 + vec2(0.37, 0.71), foam_detail_blur + 1.0);   // coarse octave breaks uniformity
-    float detail = mix(d1, d2, foam_detail_mix);
-    float lace  = foam_lace(max(body, cap), detail);   // caps erode too, at their own higher density
+    float age      = clamp(1.0 - fresh / max(density, 1e-3), 0.0, 1.0);   // 0 at the crest, 1 for old foam
+    float d1       = hex(foam_detail, uv, foam_detail_blur);                // high-frequency crest texture
+    float d_low    = hex(foam_low, uv * foam_detail_tile / foam_low_tile + vec2(0.37, 0.71), foam_detail_blur);
+    float low_mix  = mix(foam_detail_mix, 1.0, age);                        // crest: 35 % low (breaks uniformity), old: all low
+    float softness = mix(foam_softness, foam_age_softness, age);            // erosion softens with age
+    float detail   = mix(d1, d_low, low_mix);
+    float lace  = foam_lace(max(body, cap), detail, softness);   // caps erode too, at their own higher density
     float white = lace * mix(foam_trail_opacity, 1.0, cap);
-    float veil  = body * foam_veil * clamp(hex(uv, foam_detail_blur + 2.0) * 1.6, 0.0, 1.0);
+    float veil  = body * foam_veil * clamp(d_low * 1.6, 0.0, 1.0);          // reuses d_low: no extra taps
     foam = mix(max(white, veil), foam, lod);
+    // relief (below): same two crest taps, mixed with d_low by low_mix, × (1 − age): old foam is smooth
 }
 
-float foam_lace(float body, float detail) {   // Crest-style erosion: thin foam keeps only the brightest parts
-    float t = mix(1.0 + foam_softness, -foam_softness, body * foam_max_cover);   // max_cover < 1 keeps holes in saturated foam
-    return smoothstep(t - foam_softness, t + foam_softness, detail) * mix(foam_dense_shade, 1.0, detail);
+float foam_lace(float body, float detail, float softness) {   // Crest-style erosion: thin foam keeps only the brightest parts
+    float t = mix(1.0 + softness, -softness, body * foam_max_cover);   // max_cover < 1 keeps holes in saturated foam
+    return smoothstep(t - softness, t + softness, detail) * mix(foam_dense_shade, 1.0, detail);
 }
 ```
-`foam_max_cover` exists because a big crest under the camera otherwise turns into one flat opaque sheet.
+`foam_max_cover` exists because a big crest under the camera otherwise turns into one flat opaque sheet. Tap count: 3 (crest) + 3 (low) + 6 (relief, near only); the low texture replaces the old coarse octave and veil taps, so the two-texture blend costs nothing measurable. Wider foam does: the stronger blur covers more pixels (~+0.02 ms at the breeze hero pose).
 
 **Milk** (turbid water around foam): `smoothstep(0, milk_range, density + shore) · milk_strength` tints the body towards `milk_color`.
 
-**Foam relief:** within the bicubic range, two extra lace samples at `uv + (ε, 0)` and `uv + (0, ε)` (ε = 0.01) give the lace gradient in texture space; map it back to grid space through the streak rotation, stretch and tile, and apply it as `normal = normalize(normal − (relief.x, 0, relief.y) · coverage)` with `relief = gradient · foam_relief · bicubic_weight`, after flattening. No extra gating: blue streaks along lace edges and foam that looks embossed with its own shadows are symptoms of the lighting deviating from section 9.4 (missing bubble scatter, foam-only diffuse, sharp water roughness under foam), not of the relief. Fix the lighting, don't hide the relief.
+**Foam relief:** within the bicubic range, two extra lace samples at `uv + (ε, 0)` and `uv + (0, ε)` (ε = 0.01) give the lace gradient in texture space; map it back to grid space through the streak rotation, stretch and tile, and apply it as `normal = normalize(normal − (relief.x, 0, relief.y) · coverage)` with `relief = gradient · foam_relief · bicubic_weight · (1 − age)`, after flattening (aged foam is smooth). No extra gating: blue streaks along lace edges and foam that looks embossed with its own shadows are symptoms of the lighting deviating from section 9.4 (missing bubble scatter, foam-only diffuse, sharp water roughness under foam), not of the relief. Fix the lighting, don't hide the relief.
 
 ### 9.4 Foam lighting
 - Albedo `foam_color` (0.82, 0.84, 0.84), × `mix(0.85, 1, saturate(v_height / 1.5 + 0.5))` so foam darkens in troughs.
@@ -391,6 +399,7 @@ float foam_lace(float body, float detail) {   // Crest-style erosion: thin foam 
 | foam_trail_low / high | 0.03 / 0.45 | foam_cap_low / high | 0.1 / 0.45 |
 | foam_detail_tile | 14 m | foam_detail_stretch | 2.2 |
 | foam_detail_blur | 1.2 | foam_detail_mix | 0.35 |
+| foam_low_tile | 14 m | foam_age_softness | 0.35 |
 | foam_softness | 0.3 | foam_max_cover | 0.6 |
 | foam_dense_shade | 0.45 | foam_trail_opacity | 0.7 |
 | foam_veil | 0.25 | foam_hex_rotation / density / contrast | 180° / 1 / 3 |
