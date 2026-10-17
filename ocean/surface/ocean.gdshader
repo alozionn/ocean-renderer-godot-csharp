@@ -20,7 +20,7 @@ uniform sampler2D foam_far : filter_linear, repeat_disable;
 uniform vec4 foam_near_rect = vec4(-128.0, -128.0, 256.0, 0.00390625);
 uniform vec4 foam_far_rect = vec4(-1024.0, -1024.0, 2048.0, 0.00048828);
 uniform sampler2D foam_detail : filter_linear_mipmap_anisotropic, repeat_enable;
-uniform sampler2D foam_low : filter_linear_mipmap, repeat_enable; // low-frequency texture aged foam blends to
+uniform sampler2D foam_detail_soft : filter_linear_mipmap, repeat_enable; // the same texture, for the blurred tail
 uniform float foam_streak_angle = 0.349;
 
 group_uniforms geometry;
@@ -73,8 +73,10 @@ uniform float foam_detail_tile : hint_range(1.0, 100.0, 0.1) = 14.0;
 uniform float foam_detail_stretch : hint_range(1.0, 6.0, 0.05) = 2.2;
 uniform float foam_detail_blur : hint_range(0.0, 4.0, 0.05) = 1.2;
 uniform float foam_detail_mix : hint_range(0.0, 1.0, 0.01) = 0.35;
-uniform float foam_low_tile : hint_range(2.0, 200.0, 0.5) = 14.0;
 uniform float foam_age_softness : hint_range(0.01, 1.0, 0.01) = 0.35;
+uniform float foam_age_start : hint_range(0.0, 0.99, 0.01) = 0.6;
+uniform float foam_tail_blur : hint_range(0.0, 4.0, 0.05) = 2.0;
+uniform float foam_tail_opacity : hint_range(0.0, 1.0, 0.01) = 0.6;
 uniform float foam_softness : hint_range(0.01, 1.0, 0.01) = 0.3;
 uniform float foam_max_cover : hint_range(0.0, 1.0, 0.01) = 0.6;
 uniform float foam_dense_shade : hint_range(0.0, 1.0, 0.01) = 0.45;

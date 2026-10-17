@@ -17,11 +17,6 @@ internal static class FoamDetailTexture
         return _procedural ??= Generate();
     }
 
-    static ImageTexture _low;
-
-    /// <summary>The low-frequency texture aged foam blends to (always procedural, generated once).</summary>
-    public static ImageTexture Low() => _low ??= ToTexture(FoamDetail.GenerateLow(256), 256);
-
     public static ImageTexture Generate() => ToTexture(FoamDetail.Generate(512), 512);
 
     static ImageTexture ToTexture(float[] v, int size)

@@ -8,7 +8,7 @@
   ],
   "foam": {
     "bias": 0.64, "gain": 5, "injectRate": 1.2, "decay": 0.35, "freshDecay": 2.5,
-    "diffuseAlong": 3, "diffuseAcross": 0.8, "streakAngleOffset": 0,
+    "diffuseAlong": 1.5, "diffuseAcross": 0.3, "streakAngleOffset": 0,
     "weightSwell": 1, "weightChop": 1, "weightRipples": 0.3
   },
   "foamTexture": "crest",

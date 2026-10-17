@@ -222,8 +222,9 @@ public partial class Ocean : Node3D
 
     void SetFoamDetail()
     {
-        _material.SetShaderParameter(SurfaceUniforms.FoamDetail, FoamDetailTexture.Load(_root, _config.FoamTexture));
-        _material.SetShaderParameter(SurfaceUniforms.FoamLow, FoamDetailTexture.Low());
+        var texture = FoamDetailTexture.Load(_root, _config.FoamTexture);
+        _material.SetShaderParameter(SurfaceUniforms.FoamDetail, texture);
+        _material.SetShaderParameter(SurfaceUniforms.FoamDetailSoft, texture);
     }
 
     void FreeCascades()

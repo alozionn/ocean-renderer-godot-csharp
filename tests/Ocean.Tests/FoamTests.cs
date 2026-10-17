@@ -79,23 +79,6 @@ public class FoamTests
     }
 
     [Test]
-    public async Task LowFrequencyTextureMatchesCrestAndTiles()
-    {
-        const int n = 128;
-        var v = FoamDetail.GenerateLow(n);
-        var (mean, _, _) = FoamDetail.Stats(v);
-        await Assert.That(mean).IsEqualTo(0.41f).Within(0.01f);
-        // Tileable: the step across the wrap is no larger than typical neighbour steps.
-        double wrap = 0, inner = 0;
-        for (int y = 0; y < n; y++)
-        {
-            wrap += Math.Abs(v[y * n] - v[y * n + n - 1]);
-            inner += Math.Abs(v[y * n + n / 2] - v[y * n + n / 2 - 1]);
-        }
-        await Assert.That(wrap).IsLessThan(inner * 2);
-    }
-
-    [Test]
     public async Task ProceduralDetailMatchesCrestDistribution()
     {
         var (mean, p10, p90) = FoamDetail.Stats(FoamDetail.Generate(128));
