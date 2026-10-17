@@ -1,8 +1,8 @@
 # FFT Ocean for Godot 4.7 (C#)
 
-https://github.com/alozionn/ocean-renderer-godot-csharp/raw/main/docs/ocean_showcase.mp4
-
 [![The ocean at the demo's default view: breeze preset, crest foam dissolving into trails, sun glint behind a rock island](docs/ocean_showcase_img.png)](docs/ocean_showcase.mp4)
+
+▶ **[Watch the showcase video](docs/ocean_showcase.mp4)** (the screenshot links to it too)
 
 A drop-in, GPU-simulated ocean for Godot 4.7 .NET (Forward+). Three FFT cascades run in GLSL compute on the main
 `RenderingDevice`, a camera-local foam field turns breaking crests into whitecaps that age into soft trails, and a
