@@ -20,14 +20,12 @@ float ggx_d(float n_dot_h, float alpha) {
 	return a2 / (PI_W * d * d);
 }
 
-// Tilts the normal towards up until the reflected view ray stays above the horizon (no black facets).
+// No black facets: if the reflected view ray dips below min_y, return the normal that reflects it to the same azimuth
+// at height min_y (the half vector of view and that direction). Continuous: at r.y == min_y it is n itself.
 vec3 horizon_clamp(vec3 n, vec3 v, float min_y) {
-	if (reflect(-v, n).y >= min_y) return n;
-	float lo = 0.0, hi = 1.0;
-	for (int i = 0; i < 6; i++) {
-		float t = 0.5 * (lo + hi);
-		if (reflect(-v, normalize(mix(n, vec3(0.0, 1.0, 0.0), t))).y < min_y) lo = t;
-		else hi = t;
-	}
-	return normalize(mix(n, vec3(0.0, 1.0, 0.0), hi));
+	vec3 r = reflect(-v, n);
+	if (r.y >= min_y) return n;
+	vec2 flat_dir = r.xz / max(length(r.xz), 1e-5);
+	float c = sqrt(1.0 - min_y * min_y);
+	return normalize(v + vec3(flat_dir.x * c, min_y, flat_dir.y * c));
 }

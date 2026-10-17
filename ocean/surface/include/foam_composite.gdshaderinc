@@ -34,17 +34,18 @@ vec2 hex_hash(ivec2 p) {
 	return vec2(float(h >> 8u), float(hex_pcg(h) >> 8u)) / 16777216.0;
 }
 
-float hex_copy(vec2 uv, ivec2 vertex, vec2 gx, vec2 gy, float density) {
+float hex_copy(vec2 uv, ivec2 vertex, vec2 gx, vec2 gy, float density, bool soft) {
 	vec2 h = hex_hash(vertex);
 	float angle = (h.x * 2.0 - 1.0) * radians(foam_hex_rotation);
 	mat2 rot = mat2(vec2(cos(angle), sin(angle)), vec2(-sin(angle), cos(angle)));
 	vec2 v = vec2(vertex);
 	vec2 centre = vec2(v.x + 0.5 * v.y, 0.866025404 * v.y) / (3.46410162 * density);
 	vec2 p = rot * (uv - centre) + centre + h;
-	return textureGrad(foam_detail, p, rot * gx, rot * gy).r;
+	// Blurred layers don't need anisotropic filtering (it costs ~0.05 ms at 1080p); the sharp lace does.
+	return soft ? textureGrad(foam_detail_soft, p, rot * gx, rot * gy).r : textureGrad(foam_detail, p, rot * gx, rot * gy).r;
 }
 
-float foam_hex(vec2 uv, vec2 gx, vec2 gy, float blur) {
+float foam_hex(vec2 uv, vec2 gx, vec2 gy, float blur, bool soft) {
 	float scale = exp2(blur);
 	gx *= scale;
 	gy *= scale;
@@ -60,7 +61,7 @@ float foam_hex(vec2 uv, vec2 gx, vec2 gy, float blur) {
 	ivec2 v1 = base + ivec2(int(s), int(s));
 	ivec2 v2 = base + ivec2(int(s), 1 - int(s));
 	ivec2 v3 = base + ivec2(1 - int(s), int(s));
-	vec3 c = vec3(hex_copy(uv, v1, gx, gy, density), hex_copy(uv, v2, gx, gy, density), hex_copy(uv, v3, gx, gy, density));
+	vec3 c = vec3(hex_copy(uv, v1, gx, gy, density, soft), hex_copy(uv, v2, gx, gy, density, soft), hex_copy(uv, v3, gx, gy, density, soft));
 	// Sharpened barycentric weights. (A luminance-weighted blend was tried: it made the foam harder and less wispy.)
 	w = pow(max(w, vec3(0.0)), vec3(foam_hex_contrast));
 	return dot(w, c) / max(w.x + w.y + w.z, 1e-5);
@@ -96,19 +97,19 @@ FoamSample foam_composite(vec2 grid, vec2 grid_dx, vec2 grid_dy, float dist, flo
 	f.white = 0.0;
 	f.relief = vec2(0.0);
 	if (body + cap > 0.001 && lod < 0.999) {
-		float d1 = foam_hex(uv, gx, gy, foam_detail_blur);
-		float d2 = foam_hex(uv * 0.41 + vec2(0.37, 0.71), gx * 0.41, gy * 0.41, foam_detail_blur + 1.0);
+		float d1 = foam_hex(uv, gx, gy, foam_detail_blur, false);
+		float d2 = foam_hex(uv * 0.41 + vec2(0.37, 0.71), gx * 0.41, gy * 0.41, foam_detail_blur + 1.0, true);
 		float detail = mix(d1, d2, foam_detail_mix);
 		float cover = max(body, cap);
 		float lace = foam_lace(cover, detail);
 		float white = lace * mix(foam_trail_opacity, 1.0, cap);
-		float veil = body * foam_veil * clamp(foam_hex(uv, gx, gy, foam_detail_blur + 2.0) * 1.6, 0.0, 1.0);
+		float veil = body * foam_veil * clamp(foam_hex(uv, gx, gy, foam_detail_blur + 2.0, true) * 1.6, 0.0, 1.0);
 		foam = mix(max(white, veil), foam, lod);
 		f.white = white * (1.0 - lod);
 		if (relief) {
 			const float EPS = 0.01;
-			float lx = foam_lace(cover, mix(foam_hex(uv + vec2(EPS, 0.0), gx, gy, foam_detail_blur), d2, foam_detail_mix));
-			float ly = foam_lace(cover, mix(foam_hex(uv + vec2(0.0, EPS), gx, gy, foam_detail_blur), d2, foam_detail_mix));
+			float lx = foam_lace(cover, mix(foam_hex(uv + vec2(EPS, 0.0), gx, gy, foam_detail_blur, false), d2, foam_detail_mix));
+			float ly = foam_lace(cover, mix(foam_hex(uv + vec2(0.0, EPS), gx, gy, foam_detail_blur, false), d2, foam_detail_mix));
 			vec2 g_tex = vec2(lx - lace, ly - lace) / EPS;
 			f.relief = transpose(m) * g_tex * (1.0 - lod);
 		}

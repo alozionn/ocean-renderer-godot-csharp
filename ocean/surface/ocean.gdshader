@@ -20,6 +20,7 @@ uniform sampler2D foam_far : filter_linear, repeat_disable;
 uniform vec4 foam_near_rect = vec4(-128.0, -128.0, 256.0, 0.00390625);
 uniform vec4 foam_far_rect = vec4(-1024.0, -1024.0, 2048.0, 0.00048828);
 uniform sampler2D foam_detail : filter_linear_mipmap_anisotropic, repeat_enable;
+uniform sampler2D foam_detail_soft : filter_linear_mipmap, repeat_enable; // same texture, for the blurred layers
 uniform float foam_streak_angle = 0.349;
 
 group_uniforms geometry;
@@ -97,13 +98,11 @@ group_uniforms;
 
 #include "include/foam_composite.gdshaderinc"
 
-varying vec2 v_grid;
+varying vec2 v_grid; // undisplaced world xz: the simulation's texture coordinate, so foam rides with the water
 varying float v_height;
-varying float v_alpha;
-varying float v_bubbles;
 varying float v_foam;
 varying float v_white;
-varying vec3 v_foam_diffuse;
+varying float v_bubbles;
 
 // Summed cascade displacement at an undisplaced grid position, each cascade faded out with distance.
 vec3 displacement_at(vec2 grid, float dist) {
@@ -122,109 +121,101 @@ void vertex() {
 }
 
 void fragment() {
-	vec3 world = (INV_VIEW_MATRIX * vec4(VERTEX, 1.0)).xyz;
-	vec2 grid = v_grid;
 	// Screen gradients of the grid before any branching (foam detail sampling needs them).
-	vec2 grid_dx = dFdx(grid);
-	vec2 grid_dy = dFdy(grid);
-	vec3 to_camera = CAMERA_POSITION_WORLD - world;
-	float dist = length(to_camera);
-	vec3 v = to_camera / dist;
-
-	// Depth: water thickness along the view ray and the shore depth below the surface.
-	float surface_depth = -VERTEX.z;
-	float raw_depth = textureLod(depth_tex, SCREEN_UV, 0.0).r;
-	vec3 floor_view = view_position(SCREEN_UV, raw_depth, INV_PROJECTION_MATRIX);
-	float raw = -floor_view.z;
-	float thickness0 = min(max(raw - surface_depth, 0.0), 1e4);
-	// Distance along the view ray to whatever is behind (sky: the far plane, so opaque). Not the vertical drop: for a
-	// crest seen against the sky the far-plane point lies above the water, which would make the crest transparent.
-	float shore_depth = distance(floor_view, VERTEX);
-	float shore = 1.0 - smoothstep(0.0, shore_foam_distance, shore_depth);
+	vec2 grid_dx = dFdx(v_grid);
+	vec2 grid_dy = dFdy(v_grid);
+	float dist = length(VERTEX);
 
 	// Normals: bicubic up close, filtered beyond; strengths calm with distance.
 	float b = 1.0 - smoothstep(0.7 * bicubic_distance, bicubic_distance, dist);
 	vec3 size = patch_sizes / texel_sizes;
-	vec4 s0 = sample_slope(slope_0, grid / patch_sizes.x, size.x, b);
-	vec4 s1 = sample_slope(slope_1, grid / patch_sizes.y, size.y, b);
-	vec4 s2 = sample_slope(slope_2, grid / patch_sizes.z, size.z, b);
-	float calm = mix(normal_fade_floor, 1.0, exp(-dist / normal_fade_range));
+	vec4 s0 = sample_slope(slope_0, v_grid / patch_sizes.x, size.x, b);
+	vec4 s1 = sample_slope(slope_1, v_grid / patch_sizes.y, size.y, b);
+	vec4 s2 = sample_slope(slope_2, v_grid / patch_sizes.z, size.z, b);
 	vec3 strength = vec3(normal_swell, normal_chop, normal_ripples);
+	float calm = mix(normal_fade_floor, 1.0, exp(-dist / normal_fade_range));
 	vec3 calmed = strength * calm * vec3(1.0,
 		1.0 - smoothstep(0.25 * chop_fade, chop_fade, dist),
 		1.0 - smoothstep(0.25 * ripple_fade, ripple_fade, dist));
 	vec2 slope = s0.xy * calmed.x + s1.xy * calmed.y + s2.xy * calmed.z;
-
-	// Foam: flatten the water normal under it, then tilt by the lace relief.
-	FoamSample foam = foam_composite(grid, grid_dx, grid_dy, dist, shore, b > 0.0);
-	// Relief only where foam is solid (water specular is already off there). In thin lace the tilted normals would
-	// reflect sky as blue streaks and emboss the foam with its own shadows.
-	slope = slope * (1.0 - foam.coverage * foam_flatten) + foam.relief * foam_relief * b * smoothstep(0.4, 1.0, foam.coverage);
-	vec3 n = normalize(vec3(-slope.x, 1.0, -slope.y));
-	n = horizon_clamp(n, v, horizon_min);
-
-	// LEAN variance with un-calmed strengths, only beyond the bicubic range.
+	vec3 normal = normalize(vec3(-slope.x, 1.0, -slope.y));
+	// LEAN variance with un-calmed strengths, only beyond the bicubic range (up close it makes dark blotches).
 	float variance = (1.0 - b) * variance_roughness * dot(strength * strength,
 		vec3(slope_variance(s0), slope_variance(s1), slope_variance(s2)));
-	float r2 = roughness * roughness;
-	v_alpha = sqrt(r2 * r2 + variance);
-	v_foam = foam.coverage;
-	v_white = foam.white;
-	v_bubbles = smoothstep(0.0, 0.5, foam.fresh) * (1.0 - foam.coverage);
 
-	// Refraction: offset in view space, rejected when the sample lies in front of the surface.
-	vec3 n_view = (VIEW_MATRIX * vec4(n, 0.0)).xyz;
-	vec3 refr_view = VERTEX + vec3(n_view.xy, 0.0) * refraction_strength * min(thickness0, 10.0);
-	vec4 clip = PROJECTION_MATRIX * vec4(refr_view, 1.0);
-	vec2 refr_uv = clamp(clip.xy / clip.w * 0.5 + 0.5, vec2(0.0), vec2(1.0));
-	float refr_depth = -view_position(refr_uv, textureLod(depth_tex, refr_uv, 0.0).r, INV_PROJECTION_MATRIX).z;
-	if (refr_depth < surface_depth) {
-		refr_uv = SCREEN_UV;
-		refr_depth = raw;
+	// Water thickness behind this pixel along the refracted ray (screen-space offset), rejecting samples in front.
+	// Shore depth is the distance along the view ray, so crests seen against the sky stay opaque.
+	vec3 straight = view_position(SCREEN_UV, textureLod(depth_tex, SCREEN_UV, 0.0).r, INV_PROJECTION_MATRIX);
+	float shore_depth = distance(straight, VERTEX);
+	vec3 view_normal = (VIEW_MATRIX * vec4(normal, 0.0)).xyz;
+	vec2 refracted_uv = SCREEN_UV + view_normal.xy * refraction_strength * clamp(shore_depth, 0.0, 1.0);
+	vec3 behind = view_position(refracted_uv, textureLod(depth_tex, refracted_uv, 0.0).r, INV_PROJECTION_MATRIX);
+	if (behind.z > VERTEX.z) {
+		refracted_uv = SCREEN_UV;
+		behind = straight;
 	}
-	float thickness = min(max(refr_depth - surface_depth, 0.0), 1e4);
-	vec3 refracted = textureLod(screen_tex, refr_uv, 0.0).rgb;
+	float thickness = distance(behind, VERTEX);
+
+	float shore = 1.0 - smoothstep(0.0, shore_foam_distance, shore_depth);
+	FoamSample foam = foam_composite(v_grid, grid_dx, grid_dy, dist, shore, b > 0.0);
+	float milk = smoothstep(0.0, milk_range, foam.density) * milk_strength;
+
+	// Foam flattens the wave normal (but still follows it) and adds the lace's own relief.
+	normal = normalize(mix(normal, vec3(0.0, 1.0, 0.0), foam.coverage * foam_flatten));
+	vec2 relief = foam.relief * foam_relief * b;
+	normal = normalize(normal - vec3(relief.x, 0.0, relief.y) * foam.coverage);
+	vec3 view_world = normalize((INV_VIEW_MATRIX * vec4(VIEW, 0.0)).xyz);
+	normal = horizon_clamp(normal, view_world, horizon_min);
+	NORMAL = normalize((VIEW_MATRIX * vec4(normal, 0.0)).xyz);
 
 	// Colour: the body stays dark; sky reflection, fog and sun do the colouring.
 	vec3 scatter = mix(shallow_color, deep_color, 1.0 - exp(-thickness / depth_scale)) * body_tint;
 	scatter = mix(scatter, height_tint, smoothstep(0.0, 2.5, v_height) * height_tint_strength);
-	scatter = mix(scatter, milk_color, smoothstep(0.0, milk_range, foam.density) * milk_strength);
-	vec3 transmittance = pow(water_transmittance, vec3(thickness / absorption_distance));
-	float fresnel = fresnel_rough(max(dot(n, v), 0.0), v_alpha);
-	vec3 foam_albedo = foam_color * mix(0.85, 1.0, clamp(v_height / 1.5 + 0.5, 0.0, 1.0));
+	scatter = mix(scatter, milk_color, milk);
+	vec3 transmittance = pow(water_transmittance, vec3(thickness / absorption_distance)) * (1.0 - milk);
 
-	NORMAL = n_view;
+	float r2 = roughness * roughness;
+	float alpha = sqrt(r2 * r2 + variance);
+	float fresnel = fresnel_rough(clamp(dot(NORMAL, VIEW), 0.0, 1.0), alpha);
+	vec3 refracted = textureLod(screen_tex, refracted_uv, 0.0).rgb;
+	// Foam takes light: a little darker in the troughs, lit in light() with wrapped diffuse.
+	vec3 foam_albedo = foam_color * mix(0.85, 1.0, clamp(v_height / 1.5 + 0.5, 0.0, 1.0));
 	ALBEDO = mix(scatter * (1.0 - transmittance) * (1.0 - fresnel), foam_albedo, foam.coverage);
-	// The engine multiplies DIFFUSE_LIGHT by ALBEDO; this weight leaves exactly coverage * foam_albedo lit.
-	v_foam_diffuse = foam.coverage * foam_albedo / max(ALBEDO, vec3(1e-4));
 	EMISSION = refracted * transmittance * (1.0 - fresnel) * (1.0 - foam.coverage);
-	SPECULAR = 0.354 * (1.0 - smoothstep(0.0, 0.4, foam.coverage));
-	ROUGHNESS = mix(sqrt(v_alpha), foam_roughness, foam.coverage);
+	ROUGHNESS = mix(sqrt(alpha), foam_roughness, foam.coverage);
+	SPECULAR = 0.354 * (1.0 - smoothstep(0.0, 0.4, foam.coverage)); // f0 = 0.16 * 0.354^2 = 0.02
 	ALPHA = smoothstep(0.0, shore_fade_distance, shore_depth);
+	v_foam = foam.coverage;
+	v_white = foam.white;
+	v_bubbles = max(milk, foam.coverage);
 }
 
 void light() {
+	vec3 half_vector = normalize(VIEW + LIGHT);
+	float n_dot_l_raw = dot(NORMAL, LIGHT);
+	float n_dot_l = clamp(n_dot_l_raw, 0.0, 1.0);
+	float n_dot_v = max(dot(NORMAL, VIEW), 1e-3);
+	float n_dot_h = clamp(dot(NORMAL, half_vector), 0.0, 1.0);
 	vec3 radiance = LIGHT_COLOR * ATTENUATION / PI_W;
-	vec3 h = normalize(VIEW + LIGHT);
-	float n_dot_l = max(dot(NORMAL, LIGHT), 0.0);
-	float n_dot_v = max(dot(NORMAL, VIEW), 1e-4);
-	float lambda_l = smith_lambda(n_dot_l, v_alpha);
-	float g = 1.0 / (1.0 + smith_lambda(n_dot_v, v_alpha) + lambda_l);
-	float f = fresnel_rough(max(dot(VIEW, h), 0.0), v_alpha);
-	float spec = ggx_d(max(dot(NORMAL, h), 0.0), v_alpha) * g * f / (4.0 * n_dot_v);
-	float water = 1.0 - v_foam;
-	SPECULAR_LIGHT += spec * radiance * specular_strength * water;
 
-	// Atlas subsurface scatter: crest towards the sun, view-facing, sun-facing, bubbles.
-	float crest = max(v_height, 0.0) * 0.6;
-	float k1 = sss_crest * crest * pow(clamp(dot(LIGHT, -VIEW), 0.0, 1.0), 4.0) * pow(clamp(0.5 - 0.5 * dot(LIGHT, NORMAL), 0.0, 1.0), 3.0);
+	// GGX with height-correlated Smith masking and the rough-surface Fresnel; none under foam.
+	float alpha = ROUGHNESS * ROUGHNESS;
+	float lambda_l = smith_lambda(max(n_dot_l, 1e-3), alpha);
+	float masking = 1.0 / (1.0 + smith_lambda(n_dot_v, alpha) + lambda_l);
+	float fresnel = fresnel_rough(n_dot_v, alpha);
+	SPECULAR_LIGHT += radiance * ggx_d(n_dot_h, alpha) * masking * fresnel / (4.0 * n_dot_v) * specular_strength * (1.0 - v_foam);
+
+	// Water: Lambert. Foam: wrapped Lambert, so it stays soft and lit on slopes turned slightly away.
+	float wrapped = clamp((n_dot_l_raw + foam_wrap) / (1.0 + foam_wrap), 0.0, 1.0);
+	DIFFUSE_LIGHT += radiance * mix(n_dot_l, wrapped, v_foam);
+
+	// Atlas scattering. k1: sun through tall crests; k2: body seen face-on; k3: body facing the sun; k4: light
+	// bouncing around bubbles in milky water and foam. Thin foam (veil, not lace) lets a little through as well.
+	float k1 = sss_crest * max(v_height, 0.0) * 0.6 * pow(clamp(dot(LIGHT, -VIEW), 0.0, 1.0), 4.0)
+		* pow(clamp(0.5 - 0.5 * dot(LIGHT, NORMAL), 0.0, 1.0), 3.0);
 	float k2 = sss_view * pow(clamp(dot(VIEW, NORMAL), 0.0, 1.0), 2.0);
 	float k3 = sss_sun * n_dot_l;
-	float fresnel_v = fresnel_rough(n_dot_v, v_alpha);
-	SPECULAR_LIGHT += (((k1 + k2) / (1.0 + lambda_l) + k3) * sss_color + sss_bubbles * v_bubbles * bubble_color) * radiance * (1.0 - fresnel_v) * water;
-
-	// Foam: wrapped Lambert (times ALBEDO by the engine), thin veil transmits.
-	float wrap = max((dot(NORMAL, LIGHT) + foam_wrap) / (1.0 + foam_wrap), 0.0);
-	DIFFUSE_LIGHT += wrap * radiance * v_foam_diffuse;
-	SPECULAR_LIGHT += sss_color * (1.0 - v_white) * v_foam * radiance;
+	vec3 body = ((k1 + k2) / (1.0 + lambda_l) + k3) * sss_color * (1.0 - v_foam);
+	vec3 bubbles = sss_bubbles * v_bubbles * bubble_color;
+	SPECULAR_LIGHT += radiance * ((body + bubbles) * (1.0 - fresnel) + sss_color * (1.0 - v_white) * v_foam);
 }
