@@ -36,7 +36,7 @@ vec2 hex_hash(ivec2 p) {
 
 float hex_copy(vec2 uv, ivec2 vertex, vec2 gx, vec2 gy, float density) {
 	vec2 h = hex_hash(vertex);
-	float angle = (h.x * 2.0 - 1.0) * radians(foam_hex_rotation) * 0.5;
+	float angle = (h.x * 2.0 - 1.0) * radians(foam_hex_rotation);
 	mat2 rot = mat2(vec2(cos(angle), sin(angle)), vec2(-sin(angle), cos(angle)));
 	vec2 v = vec2(vertex);
 	vec2 centre = vec2(v.x + 0.5 * v.y, 0.866025404 * v.y) / (3.46410162 * density);
@@ -61,9 +61,8 @@ float foam_hex(vec2 uv, vec2 gx, vec2 gy, float blur) {
 	ivec2 v2 = base + ivec2(int(s), 1 - int(s));
 	ivec2 v3 = base + ivec2(1 - int(s), int(s));
 	vec3 c = vec3(hex_copy(uv, v1, gx, gy, density), hex_copy(uv, v2, gx, gy, density), hex_copy(uv, v3, gx, gy, density));
-	// Luminance-weighted blend (Mikkelsen): the brighter copy wins, so transitions follow the foam's own shapes
-	// instead of the straight edges of the triangle grid.
-	w = mix(vec3(1.0), c, 0.6) * pow(max(w, vec3(0.0)), vec3(foam_hex_contrast));
+	// Sharpened barycentric weights. (A luminance-weighted blend was tried: it made the foam harder and less wispy.)
+	w = pow(max(w, vec3(0.0)), vec3(foam_hex_contrast));
 	return dot(w, c) / max(w.x + w.y + w.z, 1e-5);
 }
 

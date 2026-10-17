@@ -19,7 +19,7 @@ uniform sampler2D foam_near : filter_linear, repeat_disable;
 uniform sampler2D foam_far : filter_linear, repeat_disable;
 uniform vec4 foam_near_rect = vec4(-128.0, -128.0, 256.0, 0.00390625);
 uniform vec4 foam_far_rect = vec4(-1024.0, -1024.0, 2048.0, 0.00048828);
-uniform sampler2D foam_detail : filter_linear_mipmap, repeat_enable;
+uniform sampler2D foam_detail : filter_linear_mipmap_anisotropic, repeat_enable;
 uniform float foam_streak_angle = 0.349;
 
 group_uniforms geometry;
