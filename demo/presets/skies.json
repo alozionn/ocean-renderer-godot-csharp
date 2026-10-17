@@ -1,0 +1,42 @@
+[
+  {
+    "id": "evening_road",
+    "file": "evening_road_01_puresky.png",
+    "sunAzimuth": 44.6,
+    "sunElevation": 15.4,
+    "sunColor": [1.0, 0.9, 0.8],
+    "sunEnergy": 1.6
+  },
+  {
+    "id": "procedural_sunset",
+    "file": "",
+    "sunAzimuth": 0,
+    "sunElevation": 10,
+    "sunColor": [1.0, 0.78, 0.6],
+    "sunEnergy": 1.6
+  },
+  {
+    "id": "pastel_sunset",
+    "file": "sbs_cloudy_sky_07.png",
+    "sunAzimuth": 89.5,
+    "sunElevation": 23.4,
+    "sunColor": [1.0, 0.85, 0.75],
+    "sunEnergy": 1.5
+  },
+  {
+    "id": "amber_sunset",
+    "file": "sbs_cloudy_sky_03.png",
+    "sunAzimuth": 79.6,
+    "sunElevation": 5.1,
+    "sunColor": [1.0, 0.8, 0.62],
+    "sunEnergy": 1.5
+  },
+  {
+    "id": "violet_sunset",
+    "file": "sbs_cloudy_sky_17.png",
+    "sunAzimuth": 97.9,
+    "sunElevation": 1.2,
+    "sunColor": [1.0, 0.75, 0.6],
+    "sunEnergy": 1.5
+  }
+]

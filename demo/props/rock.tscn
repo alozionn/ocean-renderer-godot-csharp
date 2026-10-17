@@ -1,0 +1,17 @@
+[gd_scene load_steps=4 format=3]
+
+[ext_resource type="Shader" path="res://demo/props/rock.gdshader" id="1_rock"]
+
+[sub_resource type="ShaderMaterial" id="Rock_mat"]
+render_priority = 0
+shader = ExtResource("1_rock")
+
+[sub_resource type="SphereMesh" id="Rock_mesh"]
+material = SubResource("Rock_mat")
+radius = 40.0
+height = 30.0
+radial_segments = 96
+rings = 32
+
+[node name="Rock" type="MeshInstance3D"]
+mesh = SubResource("Rock_mesh")

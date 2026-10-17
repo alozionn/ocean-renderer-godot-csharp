@@ -1,0 +1,16 @@
+{
+  "resolution": 512,
+  "simulationRate": 60,
+  "cascades": [
+    { "patchSize": 400, "windSpeed": 12, "windDirection": 20, "fetch": 200000, "suppression": 0.5, "timeScale": 1, "heightScale": 1.0, "choppiness": 0.9 },
+    { "patchSize": 73, "windSpeed": 8, "windDirection": 35, "fetch": 60000, "suppression": 0.1, "timeScale": 1, "heightScale": 0.7, "choppiness": 0.9 },
+    { "patchSize": 13.7, "windSpeed": 5, "windDirection": 0, "fetch": 30000, "suppression": 0.02, "timeScale": 1, "heightScale": 0.6, "choppiness": 0.7 }
+  ],
+  "foam": {
+    "bias": 0.6, "gain": 5, "injectRate": 1.2, "decay": 0.35, "freshDecay": 2.5,
+    "diffuseAlong": 0.35, "diffuseAcross": 0.06, "streakAngleOffset": 0,
+    "weightSwell": 1, "weightChop": 1, "weightRipples": 0.3
+  },
+  "foamTexture": "crest",
+  "surface": {}
+}

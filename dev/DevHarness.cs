@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
 using Godot;
+using OceanDemo;
 using OceanNode = Ocean.Ocean;
 
 namespace OceanDev;
@@ -15,6 +16,7 @@ public partial class DevHarness : Node
 {
     readonly Dictionary<string, string> _args = new();
     OceanNode _ocean;
+    DemoRoot _demo;
     Camera3D _camera;
 
     public override void _Ready()
@@ -34,6 +36,10 @@ public partial class DevHarness : Node
         _camera = GetViewport().GetCamera3D();
         if (_camera != null) _camera.SetProcessInput(false);
         if (_args.TryGetValue("cam", out var cam)) Captures.Place(_camera, ParsePose(cam));
+        _demo = Find<DemoRoot>(GetTree().Root);
+        if (_args.TryGetValue("sky", out var sky)) _demo.Sky.Apply(sky);
+        if (_args.TryGetValue("preset", out var preset))
+            _ocean.LoadConfig(preset.Contains('/') ? preset : $"res://demo/presets/{preset.TrimSuffix(".json")}.json");
         _ = RunAsync();
     }
 
@@ -50,6 +56,7 @@ public partial class DevHarness : Node
             if (_args.ContainsKey("selftest")) exit = GpuChecks.Run(_ocean.Pipelines) ? 0 : 1;
             else if (_args.TryGetValue("capture", out var poses)) await Capture(poses.Split(','));
             else if (_args.TryGetValue("burst", out var n)) await Burst(int.Parse(n));
+            else if (_args.TryGetValue("bench", out var secs)) await Bench(double.Parse(secs, System.Globalization.CultureInfo.InvariantCulture));
             else return;
         }
         catch (Exception e)
@@ -80,6 +87,25 @@ public partial class DevHarness : Node
         }
         for (int i = 0; i < n; i++) Captures.Save(frames[i], $"{Tag}_burst_{i:D2}");
         Captures.Save(Captures.Sheet(frames, 4, 640), $"{Tag}_burst_strip");
+    }
+
+    /// <summary>Average and 1 %-low frame time after a 3 s warm-up, at the current pose.</summary>
+    async Task Bench(double seconds)
+    {
+        await Wait(3.0);
+        var times = new List<double>();
+        ulong last = Time.GetTicksUsec(), end = last + (ulong)(seconds * 1e6);
+        while (last < end)
+        {
+            await ToSignal(GetTree(), SceneTree.SignalName.ProcessFrame);
+            ulong now = Time.GetTicksUsec();
+            times.Add((now - last) / 1000.0);
+            last = now;
+        }
+        times.Sort();
+        double avg = times.Average(), low = times.Skip((int)(times.Count * 0.99)).Average();
+        var size = GetViewport().GetVisibleRect().Size;
+        GD.Print(FormattableString.Invariant($"bench {Tag}: {size.X}x{size.Y} res {_ocean.Config.Resolution} frames {times.Count} avg {avg:F3} ms ({1000 / avg:F0} fps) 1%-low {low:F3} ms ({1000 / low:F0} fps)"));
     }
 
     async Task Capture(IEnumerable<string> poses)
