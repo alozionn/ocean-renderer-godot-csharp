@@ -1,0 +1,11 @@
+[gd_scene load_steps=3 format=3]
+
+[ext_resource type="Shader" path="res://demo/props/island_terrain.gdshader" id="1_shader"]
+[ext_resource type="Script" path="res://demo/props/IslandTerrain.cs" id="2_script"]
+
+[sub_resource type="ShaderMaterial" id="Island_mat"]
+shader = ExtResource("1_shader")
+
+[node name="IslandTerrain" type="MeshInstance3D"]
+material_override = SubResource("Island_mat")
+script = ExtResource("2_script")

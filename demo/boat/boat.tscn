@@ -1,0 +1,10 @@
+[gd_scene load_steps=3 format=3]
+
+[ext_resource type="Script" path="res://demo/boat/Boat.cs" id="1_boat"]
+[ext_resource type="PackedScene" path="res://demo/boat/ship-pirate-large.glb" id="2_ship"]
+
+[node name="Boat" type="Node3D"]
+script = ExtResource("1_boat")
+
+[node name="Model" parent="." instance=ExtResource("2_ship")]
+transform = Transform3D(-2.5, 0, 0, 0, 2.5, 0, 0, 0, -2.5, 0, -2.5, 0)

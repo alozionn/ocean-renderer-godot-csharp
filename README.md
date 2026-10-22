@@ -23,8 +23,8 @@ The repository has three layers:
 
 | Folder | What it is |
 |---|---|
-| `ocean/` | **The renderer.** One `Ocean` node, its shaders, the config and parameter models. No UI, lights, sky, camera or command line. Copy this folder and you are done. |
-| `demo/` | The showcase scene: sky presets, sun, fog, a rock, a fly camera, the parameter panels, JSON presets. |
+| `ocean/` | **The renderer.** One `Ocean` node, its shaders, sea spray, the sea-floor (shore) input, the config and parameter models. No UI, lights, sky, camera or command line. Copy this folder and you are done. |
+| `demo/` | The showcase scene: sky presets, sun, fog, a seeded island terrain (ported from Mushrook, with caustics) that feeds the ocean its sea floor, a boat with a chase camera, a fly camera, the parameter panels, JSON presets. |
 | `dev/` | Tooling for development (captures, bursts, benchmark, GPU self-test). Not needed to run anything; see `dev/README.md`. |
 | `tests/` | TUnit tests for the pure maths in `ocean/core/`. |
 
@@ -56,8 +56,51 @@ foreach (var set in ocean.Parameters)          // live knobs for your own UI or 
 | `Snapshot()` | a copy of the live config |
 | `Apply(config)` | replaces the config; regenerates a cascade's spectrum only when its spectrum fields change, rebuilds GPU resources only when the resolution changes |
 | `LoadConfig(path)` / `SaveConfig(path)` | `res://`, `user://` or absolute paths |
-| `Parameters` | `ParameterSet`s: Ocean, Cascade 0–2, Foam field, Surface (built from the shader's uniform groups) |
+| `Parameters` | `ParameterSet`s: Ocean, Cascade 0–2, Foam field, Spray, Surface (built from the shader's uniform groups) |
 | `ConfigChanged` | raised after every `Apply` |
+| `SetSeaFloor(floor)` / `ClearSeaFloor()` / `SeaFloor` | the ground under the water (see [Shores and terrain](#shores-and-terrain)); without one the sea is deep everywhere |
+
+## Shores and terrain
+
+The ocean works with any terrain without knowing what it is: hand it the ground heights once, as a grid, and it
+builds a `SeaFloor` (pure C#, `ocean/core/Shore/`):
+
+- **water depth** per sample (sea level − ground);
+- **signed distance to the shoreline** in metres (exact Euclidean distance transform; + in the sea, − on land);
+- **open sea vs. enclosed water:** wet samples connected to the grid's border are sea; water cut off from it (a pool
+  below sea level inside an island) is a lake.
+
+```csharp
+// heights: ground y in world metres, row-major (index = z * width + x), one sample every cellSize metres,
+// sample (0, 0) at world xz = origin. Call again whenever the terrain changes.
+var floor = Ocean.Core.Shore.SeaFloor.FromHeights(heights, width, depth, cellSize,
+    new System.Numerics.Vector2(originX, originZ), seaLevel: ocean.GlobalPosition.Y);
+ocean.SetSeaFloor(floor);
+```
+
+It is uploaded as one small texture and changes how the water behaves over it, all tunable in the Surface panel's
+`shore` group (or the config's `surface` overrides):
+
+| | |
+|---|---|
+| **Quiet water** | each cascade's waves fade out as the water gets shallow: swell first (`shallow_swell_depth` 16 m), then chop (5 m), then ripples (0.6 m). Over land there are no waves, so water never washes through beaches. Lakes keep `lake_waves` (15 %) of every cascade. The deep-water foam field is calmed with the chop. |
+| **Shore foam** | a band `shore_band_width` (4 m) wide along the coast, in metres from the shoreline (independent of the camera). Foam against things that are not in the heightmap (hulls, rocks) still comes from the depth buffer (`shore_foam_distance`). |
+| **Surf** | lines travelling down the distance field towards the beach (`surf_spacing` 16 m, `surf_speed` 2.2 m/s) in the outer `surf_zone` (45 m), soft-edged and broken up along the coast; they run through the foam lace like any other foam. |
+| **Breaking** | foam where the water is shallower than `breaking_ratio` (1.3) × the local wave height: sandbars and reefs break before the beach. |
+| **Colour** | a turquoise lagoon tint over shallow ground (`lagoon_color`, `lagoon_depth` 6 m) and stirred-up sand in the surf zone (`sediment_color`). |
+
+Outside the sea floor's rectangle, and with no sea floor at all, all of this is off and the ocean looks exactly as it
+did. The demo's island pushes its heightmap on every (re)generation (`DemoRoot`).
+
+## Sea spray
+
+GPU particles (`ocean/spray/`, the `Spray` child of `ocean.tscn`). Each particle, when it restarts, picks a random
+spot around the camera and asks the ocean's own data whether spray belongs there: fresh crest foam from the near foam
+field (freshness above `threshold`), or a surf line or breaking shallow from the sea floor. If not, it stays inactive
+for that lifetime. Spray rises, drifts with the wind (cascade 0's direction), falls back and fades; the puffs are
+camera-facing quads cut from the foam detail texture, back-lit by the sun, drawn after the water. No readback: the
+particle shader samples the same displacement, foam and sea-floor textures as the surface. Settings live in the
+config's `spray` object and the Spray panel; cost is about 0.01–0.02 ms at 8000 particles.
 
 ## Configuration
 
@@ -74,8 +117,9 @@ Plain JSON (camelCase, unknown fields ignored, missing fields keep their default
     {}
   ],
   "foam": { "bias": 0.64 },
+  "spray": { "amount": 8000, "threshold": 0.3, "speed": 4.5, "opacity": 0.5 },
   "foamTexture": "crest",
-  "surface": { "foam_veil": 0.3, "sss_color": "#14383d" }
+  "surface": { "foam_veil": 0.3, "sss_color": "#14383d", "surf_spacing": 20 }
 }
 ```
 
@@ -115,13 +159,17 @@ sunset.
 
 | Key | |
 |---|---|
-| F1 | ocean panel (presets, cascades, foam, surface) |
-| F2 | environment panel (sky, yaw, sun elevation, energies, glow) |
+| F1 | ocean panel (presets, cascades, foam, spray, surface incl. shore) |
+| F2 | environment panel (sky, yaw, sun elevation, energies, glow, island seed / new island) |
 | F3 | Debug Menu (FPS, frame times) |
 | W A S D, Q / E | fly, down / up |
 | hold right mouse | look |
 | Shift | ×5 speed |
 | mouse wheel | speed ×1.2 / ÷1.2 |
+| C | toggle god view / boat |
+
+In boat mode: W / S throttle and reverse, A / D steer (needs speed), Shift ×3 speed, hold right mouse to orbit the
+chase camera, mouse wheel to zoom. The boat holds a fixed height; it does not float on the waves.
 
 Both panels are open when the demo starts; F1 / F2 hide them. They exist only in debug builds (running from the editor
 or a debug export). Presets save to `user://ocean_custom.json` and load back as "custom".

@@ -36,5 +36,8 @@ Poly Haven (https://polyhaven.com), Sergej Majboroda (original) and Jarod Guest 
 ## Cloudy Skyboxes — `demo/skies/sbs_cloudy_sky_*.png`
 Screaming Brain Studios (https://opengameart.org). CC0 1.0.
 
+## Pirate Kit — `demo/boat/ship-pirate-large.glb`, `demo/boat/Textures/colormap.png`
+Pirate Kit 2.1 by Kenney (https://www.kenney.nl). CC0 1.0.
+
 ## Debug Menu — `addons/debug_menu/`
 Godot Debug Menu v1.2.0 by Hugo Locurcio and contributors (https://github.com/godot-extended-libraries/godot-debug-menu). MIT; the full licence is in `addons/debug_menu/LICENSE.md`.

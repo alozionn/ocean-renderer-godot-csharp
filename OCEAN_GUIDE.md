@@ -99,7 +99,7 @@ Three layers. Each one uses only the public surface of the layer below, and the 
 | Layer | Folder | What it is | Ships? |
 |---|---|---|---|
 | **Renderer** | `ocean/` | The drop-in water: one `Ocean` node, its shaders, the config model, the parameter model. No UI, no lights, no sky, no camera, no command line. Copy the folder into any Godot 4.7 C# project and it works. | yes |
-| **Demo** | `demo/` | The showcase scene: sky presets, sun, fog, rock, camera, the debug UI, JSON presets. Uses only the renderer's public API. Delete the folder and the renderer still builds. | yes |
+| **Demo** | `demo/` | The showcase scene: sky presets, sun, fog, island terrain, camera, the debug UI, JSON presets. Uses only the renderer's public API. Delete the folder and the renderer still builds. | yes |
 | **Dev** | `dev/` | AI-side tooling: captures, frame bursts, benchmark, GPU self-test. Has its own entry scene. Nothing outside `dev/` references it. | no (stripped before release) |
 | Tests | `tests/` | Small TUnit project for the pure maths. | optional |
 
@@ -110,19 +110,21 @@ Three layers. Each one uses only the public surface of the layer below, and the 
   README.md, LICENSE, THIRD_PARTY_NOTICES.md
   ocean/                           THE RENDERER
     Ocean.cs                       the node: public API (section 6), lifetime, tick scheduling
-    ocean.tscn                     Ocean (Node3D) > Surface (MeshInstance3D + material)
+    ocean.tscn                     Ocean (Node3D) > Surface (MeshInstance3D + material), Spray (GPUParticles3D)
     core/                          pure C#, no Godot types (compiled into the game AND linked into tests)
-      Spectrum/  Fft/  Scheduling/  Foam/  Mesh/  Gpu/  Config/  Parameters/
+      Spectrum/  Fft/  Scheduling/  Foam/  Mesh/  Gpu/  Config/  Parameters/  Shore/ (SeaFloor: depth, shore distance, open sea)
     simulation/                    OceanPipelines, OceanCascade, RdResources; shaders/ spectrum, fft, mipmap .glsl
     foam/                          OceanFoamField, FoamDetailTexture (procedural fallback); shaders/foam_field.glsl
-    surface/                       OceanMesh, SurfaceUniforms, ocean.gdshader, include/ sampling, lighting, foam_composite
+    surface/                       OceanMesh, SurfaceUniforms, ocean.gdshader, include/ sampling, lighting, foam_composite, shore
+    spray/                         spray.gdshader (particle process: spawns from crest foam and surf), spray_draw.gdshader
     assets/                        foam textures + their READMEs
   demo/
-    main.tscn                      WorldEnvironment, Sun, Camera, Rock, Ocean instance, two ParameterPanels, DemoRoot
+    main.tscn                      WorldEnvironment, Sun, Camera, Island, Ocean instance, two ParameterPanels, DemoRoot
     DemoRoot.cs                    wires the demo: loads presets, hands parameter sets to the panels
     camera/FreeFlyCamera.cs
     environment/                   SkyPreset (plain C#), SkyRig.cs (applies a preset to WorldEnvironment + Sun)
-    props/rock.tscn, rock.gdshader
+    props/island_terrain.tscn, IslandTerrain.cs, island_terrain.gdshader
+    boat/                          boat.tscn, Boat.cs (levitating, WASD), BoatCamera.cs (chase), Kenney ship-pirate-large.glb
     ui/                            ParameterPanel.tscn/.cs (generic presenter) + rows/ FloatRow, IntRow, BoolRow, EnumRow, ColorRow, ActionRow, ReadoutRow (.tscn/.cs), demo_theme.tres
     presets/                       ocean_*.json, skies.json
     skies/                         panoramas + READMEs
@@ -452,7 +454,7 @@ float foam_lace(float body, float detail, float softness) {   // Crest-style ero
 | foam_far_opacity | 0.35 | foam_lod_start / end | 120 / 220 m |
 | foam_fade_range | 400 m | foam_roughness / flatten | 0.8 / 0.6 |
 | foam_relief | 0.3 | foam_wrap | 0.35 |
-| milk_color / strength / range | (0.5,0.55,0.56) / 0.15 / 1.5 | shore_foam_distance / shore_fade_distance | 0.8 / 0.3 |
+| milk_color / strength / range | (0.5,0.55,0.56) / 0.15 / 1.5 | shore_foam_distance / shore_fade_distance | 1.5 / 0.3 |
 
 ### 9.6 Measured targets (`dev/FoamStats`)
 After 8 s at the calm preset from the hero pose, read back the near field once; over its central 128 m × 128 m:
@@ -479,7 +481,7 @@ These are a safety net; the captures decide.
 - **Roughness:** LEAN-style variance `Σ strength² · max(slope.w − |slope.xy|², 0)` with the un-calmed strengths, **only beyond the bicubic range** (up close it makes dark blotches); `α = sqrt(roughness⁴ + variance)`, roughness 0.12, `variance_roughness` 1.
 - **Horizon clamp** (no black facets): before writing `NORMAL`, if `r = reflect(−v, n)` has `r.y < horizon_min` (0.03), return the closed-form half vector `normalize(v + (r̂.x·c, horizon_min, r̂.z·c))` with `r̂` the horizontal direction of `r` and `c = sqrt(1 − horizon_min²)`. Continuous at the threshold; no iterative search (a 6-step bisection was tried: slower, same look).
 - **Depth and refraction:** `straight` = view position of the depth sample at `SCREEN_UV`; `shore_depth = distance(straight, VERTEX)`; refraction offset in **screen UV**: `SCREEN_UV + view_normal.xy · refraction_strength (0.04) · saturate(shore_depth)`; reject the sample if it lies in front of the surface; thickness = distance to the refracted sample; shore depth for shore foam and `ALPHA = smoothstep(0, shore_fade_distance, shore_depth)`. **Shore depth is the distance along the view ray** from the surface to the opaque point behind it (`distance(behind_view_pos, VERTEX)`), never the vertical drop `surface.y − behind.y`: with sky behind, the "behind" point is on the far plane, which for a crest seen against the sky lies *above* the water, so a vertical depth clamps to 0 and every crest above the horizon turns transparent (the water looks cut flat at the horizon line).
-- **Colour:** scatter = mix(shallow (0.12,0.2,0.24), deep (0.03,0.05,0.07), 1 − exp(−thickness / 6)) × body_tint (1,1,1); mix towards height tint (0.1,0.22,0.25) by `smoothstep(0, 2.5, v_height) · 0.1`; milk; transmittance `pow(water_transmittance (0.35,0.75,0.8), thickness / absorption_distance 4)`. `ALBEDO = scatter(1−T)(1−F)`, `EMISSION = refracted · T · (1−F)`, `SPECULAR = 0.354` (f0 = 0.02).
+- **Colour:** scatter = mix(shallow (0.12,0.2,0.24), deep (0.03,0.05,0.07), 1 − exp(−thickness / 6)) × body_tint (1,1,1); mix towards height tint (0.1,0.22,0.25) by `smoothstep(0, 2.5, v_height) · 0.1`; milk; transmittance `pow(water_transmittance (0.35,0.75,0.8), thickness / absorption_distance 10)`. `ALBEDO = scatter(1−T)(1−F)`, `EMISSION = refracted · T · (1−F)`, `SPECULAR = 0.354` (f0 = 0.02).
 - **`light()`:** GGX with height-correlated Smith `1/(1+Λv+Λl)` and the Atlas rough-surface Fresnel `f0 + (1−f0)·(1−NdotV)^(5·e^(−2.69α)) / (1 + 22.7·α^1.5)`, × radiance/π × `specular_strength` (1) × (1 − foam) into `SPECULAR_LIGHT`. Atlas scatter (GDC 2019): k1 crest towards the sun `sss_crest 2 · crest · pow(saturate(dot(L, −V)), 4) · pow(saturate(0.5 − 0.5·dot(L, N)), 3)` with crest = `max(v_height, 0) · 0.6`; k2 view-facing `sss_view 0.4 · pow(saturate(dot(V, N)), 2)`; k3 sun-facing `sss_sun 0.1 · NdotL`; k4 bubbles `sss_bubbles 0.35 · bubbles · bubble_color (0.6,0.66,0.66)`; (k1 + k2)/(1+Λl) + k3, all × `sss_color (0.08,0.22,0.24)` × radiance/π × (1−F) into `SPECULAR_LIGHT`. Keep these modest or crests go neon green.
 - `SurfaceUniforms.cs` holds every uniform name C# sets; C# uses only these constants.
 
@@ -489,7 +491,7 @@ These are a safety net; the captures decide.
 
 ## 11. Demo scene (milestone M2/M4)
 
-- **`demo/main.tscn`** holds WorldEnvironment, Sun (`DirectionalLight3D`, shadows off), Camera, Rock, an `ocean.tscn` instance, `DemoRoot`, and two `ParameterPanel` instances (Ocean: docked left, F1; Environment: bottom-right, F2).
+- **`demo/main.tscn`** holds WorldEnvironment, Sun (`DirectionalLight3D`, shadows off), Camera, Island, an `ocean.tscn` instance, `DemoRoot`, and two `ParameterPanel` instances (Ocean: docked left, F1; Environment: bottom-right, F2).
 - **Environment:** sky background; ambient and reflections from sky; ACES tonemap (`tonemap_mode` 3), `tonemap_white` 6; depth fog with `fog_light_color` (0.9, 0.82, 0.76), `fog_density` 0.0005 (0.0008 washes out high views), `fog_aerial_perspective` 1, `fog_sky_affect` 0; glow on with `glow_hdr_threshold` 1.2 (other glow settings at engine defaults). No SSR, SSAO, SDFGI, volumetric fog or shadows.
 - **Skies** (`demo/presets/skies.json`, loaded by `SkyRig`; `Sky.RadianceSize = Size256`, sky energy 1; panoramas yawed per section 4 so the sun is straight ahead of the default camera):
 
@@ -502,8 +504,9 @@ These are a safety net; the captures decide.
   | `violet_sunset` | `sbs_cloudy_sky_17.png` | 89.8 | 14.2 | (1, 0.75, 0.6) | 1.5 |
 
   All five rows are verified by capture. Automatic measurement from the image (brightest pixel, or warmth × brightness) is unreliable on these tonemapped sunsets: it lands on haze below the disc and was off by up to 13° of elevation, so don't build it. **Verify by capture instead**: camera at `0,15,0,0,0` (level, yaw 0), find the painted disc's pixel (x, y), then azimuth error = `atan((x − 960)/960 · tan(hfov/2))` (hfov/2 from vertical fov 70° at 16:9: `tan = 0.7 · 16/9`), elevation = `atan((540 − y)/540 · tan(35°))`. Add the azimuth error to the table value; the glint must sit under the disc. Keep the procedural sky's ground non-black.
-- **Rock** (`demo/props/rock.tscn`): `SphereMesh` radius 40, height 30, 96 × 32 segments, at (120, −8, −160). `rock.gdshader`: vertex displacement along the normal by 3-octave value-noise fbm (`noise_scale` 0.07, `amplitude` 9); heights above `flat_top` 13.5 compressed ×0.25 into a flattish top; albedo (0.22, 0.2, 0.18) with lighter strata (0.34, 0.31, 0.27); a darker wet band within 1.5 m of y = 0; roughness 0.9; faceted shading (`facets` 0.7: blend towards flat face normals from screen derivatives). A composition anchor and a shore-foam test, not terrain.
-- **`FreeFlyCamera`:** WASD, Q/E down/up, hold RMB to look (start it in `_UnhandledInput` so UI clicks never start it, release in `_Input`), Shift ×5, wheel ×1.2 speed. Default pose = `overview` (0, 52, −40, pitch −33°, yaw −24°: rock and glint in view, breeze crests in front; mind the row-major basis), `fov` 70, `far` 8000.
+- **Island** (`demo/props/island_terrain.tscn`, `IslandTerrain.cs`): a seeded heightmap ported from Mushrook (`GridData.generateHeightMap`): Perlin fbm (frequency 0.02 per cell, 4 octaves) with two layers of domain warping, × `MaxHeight` 15, lifted +2 and sunk towards `SeaFloor` −8 by a radial smoothstep falloff from 0.45 of the radius, so it reads as islands in open water; below sea level depth is squared (`h² / SeaFloor`) so coasts get clear shallows before the drop-off. 256 × 256 cells of 4 m (≈1 km), centred at (250, 0, −700), right of the glint; heights in band units × `HeightScale` 4 m. `island_terrain.gdshader` ports Mushrook's colour bands (muddy sand under water, sand, grass, hill, mountain, snow), land decoded with pow 2.2 so it keeps its saturation under ACES, the seabed left as authored (light sand: decoded it reads as deep water). Caustics also ported: Mushrook's ridged cellular noise (seamless 512² texture), two scrolling rotated layers multiplied, `pow(·, 2)` to focus the mid-grey texture into lines, × 3, 0.05 repeats per metre, fading in over 0.6 m below sea level and out over 12 m of depth. `Seed` 7 by default (captures stay deterministic); the Environment panel has **Island seed** and **New island** (random seed). No collision. Every generation raises `Generated`; `DemoRoot` builds a `SeaFloor` from `WorldHeights` and calls `Ocean.SetSeaFloor` (README "Shores and terrain"), which calms the waves in the shallows and drives shore foam, surf, spray and the lagoon tint.
+- **Boat** (`demo/boat/`): Kenney's `ship-pirate-large.glb` (CC0) at ×2.5 (≈33 m), keel 2.5 m below y = 0, turned 180° so the bow faces −Z; starts at (60, 0, −150). `Boat.cs` holds a fixed height (no physics, no water coupling): W/S throttle (reverse at half), A/D rudder scaled by speed, Shift ×3, exponential drag when coasting. `BoatCamera` chases from behind (55 m, pitch −15°, swings in at rate 4), RMB orbits, wheel zooms, never below y = 2. **C** (`DemoRoot.BoatToggleKey`) toggles boat mode: the free-fly camera is disabled and the chase camera made current; `StartInBoat` starts there. The ocean follows whichever camera is current.
+- **`FreeFlyCamera`:** WASD, Q/E down/up, hold RMB to look (start it in `_UnhandledInput` so UI clicks never start it, release in `_Input`), Shift ×5, wheel ×1.2 speed. Default pose = `overview` (0, 52, −40, pitch −33°, yaw −24°: island and glint in view, breeze crests in front; mind the row-major basis), `fov` 70, `far` 8000.
 
 ## 12. Parameters and the generic UI (milestone M4) **(new)**
 
@@ -559,7 +562,7 @@ Look at the full-resolution captures, not only the contact sheet: a downscaled s
 | top_down | 0,250,0,−60,30 | nothing white from 250 m, no square |
 | close | 0,4,0,−30,20 | lace, no wire mesh |
 | close_down | 0,7,0,−62,40 | foam texture, relief |
-| shore | 60,10,−110,−15,−50 | shore foam at the rock |
+| shore | 120,14,−300,−12,−20 | shore foam and shallow water at the island |
 | overview | 0,52,−40,−33,−24 | the demo's default camera (breeze): crest foam, far waves calm and stable |
 
 Yaw 0 faces the sun on every panorama preset. Bursts at `close_down` and `hero`: foam drifts with the water, caps age into trails, nothing pops between frames. Compare the hero capture against `docs/reference.webp`.

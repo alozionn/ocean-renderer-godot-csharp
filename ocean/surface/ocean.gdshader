@@ -40,7 +40,7 @@ uniform float depth_scale : hint_range(0.5, 50.0, 0.1) = 6.0;
 uniform vec3 height_tint : source_color = vec3(0.1, 0.22, 0.25);
 uniform float height_tint_strength : hint_range(0.0, 1.0, 0.01) = 0.1;
 uniform vec3 water_transmittance : source_color = vec3(0.35, 0.75, 0.8);
-uniform float absorption_distance : hint_range(0.1, 40.0, 0.1) = 4.0;
+uniform float absorption_distance : hint_range(0.1, 40.0, 0.1) = 10.0;
 uniform float refraction_strength : hint_range(0.0, 0.5, 0.005) = 0.04;
 
 group_uniforms surface;
@@ -100,11 +100,33 @@ uniform float foam_wrap : hint_range(0.0, 1.0, 0.01) = 0.35;
 uniform vec3 milk_color : source_color = vec3(0.5, 0.55, 0.56);
 uniform float milk_strength : hint_range(0.0, 1.0, 0.01) = 0.15;
 uniform float milk_range : hint_range(0.05, 5.0, 0.05) = 1.5;
-uniform float shore_foam_distance : hint_range(0.0, 5.0, 0.05) = 0.8;
+uniform float shore_foam_distance : hint_range(0.0, 5.0, 0.05) = 0.6;
 uniform float shore_fade_distance : hint_range(0.01, 3.0, 0.01) = 0.3;
+
+// Only active with a sea floor (Ocean.SetSeaFloor). Depths in metres of water, distances in metres from the shore.
+group_uniforms shore;
+uniform float shallow_swell_depth : hint_range(0.5, 60.0, 0.5) = 16.0;
+uniform float shallow_chop_depth : hint_range(0.1, 20.0, 0.1) = 5.0;
+uniform float shallow_ripple_depth : hint_range(0.05, 5.0, 0.05) = 0.6;
+uniform float lake_waves : hint_range(0.0, 1.0, 0.01) = 0.15;
+uniform float shore_band_width : hint_range(0.0, 30.0, 0.1) = 4.0;
+uniform float shore_band_strength : hint_range(0.0, 2.0, 0.01) = 0.8;
+uniform float surf_zone : hint_range(0.0, 200.0, 1.0) = 45.0;
+uniform float surf_spacing : hint_range(2.0, 60.0, 0.5) = 16.0;
+uniform float surf_speed : hint_range(0.0, 10.0, 0.05) = 2.2;
+uniform float surf_sharpness : hint_range(1.0, 24.0, 0.5) = 7.0;
+uniform float surf_strength : hint_range(0.0, 2.0, 0.01) = 0.7;
+uniform float breaking_ratio : hint_range(0.0, 3.0, 0.01) = 1.3;
+uniform float breaking_strength : hint_range(0.0, 2.0, 0.01) = 0.6;
+uniform vec3 lagoon_color : source_color = vec3(0.04, 0.55, 0.55);
+uniform float lagoon_depth : hint_range(0.1, 30.0, 0.1) = 6.0;
+uniform float lagoon_strength : hint_range(0.0, 1.0, 0.01) = 0.6;
+uniform vec3 sediment_color : source_color = vec3(0.52, 0.47, 0.36);
+uniform float sediment_strength : hint_range(0.0, 1.0, 0.01) = 0.12;
 group_uniforms;
 
 #include "include/foam_composite.gdshaderinc"
+#include "include/shore.gdshaderinc"
 
 varying vec2 v_grid; // undisplaced world xz: the simulation's texture coordinate, so foam rides with the water
 varying float v_height;
@@ -114,9 +136,9 @@ varying float v_bubbles;
 
 // Summed cascade displacement at an undisplaced grid position, each cascade faded out with distance and filtered to
 // the local vertex spacing (the mesh can only show wavelengths of at least two vertices).
-vec3 displacement_at(vec2 grid, float dist, float spacing) {
+vec3 displacement_at(vec2 grid, float dist, float spacing, vec3 calm) {
 	vec3 far = vec3(fade_swell, fade_chop, fade_ripples);
-	vec3 fade = 1.0 - smoothstep(0.25 * far, far, vec3(dist));
+	vec3 fade = (1.0 - smoothstep(0.25 * far, far, vec3(dist))) * calm;
 	// Inner rings (spacing == mesh_spacing) keep mip 0: they snap to their own spacing, so they never swim.
 	vec3 lod = max(log2(spacing / max(texel_sizes, vec3(mesh_spacing))) + displacement_lod_bias, vec3(0.0));
 	return textureLod(displacement_0, grid / patch_sizes.x, lod.x).xyz * fade.x
@@ -128,7 +150,8 @@ void vertex() {
 	v_grid = VERTEX.xz;
 	vec2 local = VERTEX.xz - MODEL_MATRIX[3].xz; // offset from the (snapped) mesh centre
 	float spacing = max(mesh_spacing, max(abs(local.x), abs(local.y)) * mesh_growth);
-	vec3 d = displacement_at(v_grid, length(VERTEX.xz - CAMERA_POSITION_WORLD.xz), spacing);
+	vec3 calm = shore_calm(shore_at(v_grid));
+	vec3 d = displacement_at(v_grid, length(VERTEX.xz - CAMERA_POSITION_WORLD.xz), spacing, calm);
 	VERTEX += d;
 	v_height = d.y;
 }
@@ -145,7 +168,9 @@ void fragment() {
 	vec4 s0 = sample_slope(slope_0, v_grid / patch_sizes.x, size.x, b);
 	vec4 s1 = sample_slope(slope_1, v_grid / patch_sizes.y, size.y, b);
 	vec4 s2 = sample_slope(slope_2, v_grid / patch_sizes.z, size.z, b);
-	vec3 strength = vec3(normal_swell, normal_chop, normal_ripples);
+	ShoreSample sea = shore_at(v_grid);
+	vec3 wave_calm = shore_calm(sea);
+	vec3 strength = vec3(normal_swell, normal_chop, normal_ripples) * wave_calm;
 	float calm = mix(normal_fade_floor, 1.0, exp(-dist / normal_fade_range));
 	vec3 calmed = strength * calm * vec3(1.0,
 		1.0 - smoothstep(0.25 * chop_fade, chop_fade, dist),
@@ -169,8 +194,16 @@ void fragment() {
 	}
 	float thickness = distance(behind, VERTEX);
 
+	// Shore foam: against anything in the depth buffer (hulls, rocks), plus, with a sea floor, a band a few metres wide by
+	// distance from the shore, surf lines rolling in, and crests breaking where the water is shallower than ~1.3 wave heights.
 	float shore = 1.0 - smoothstep(0.0, shore_foam_distance, shore_depth);
-	FoamSample foam = foam_composite(v_grid, grid_dx, grid_dy, dist, shore, b > 0.0);
+	float wet = step(0.0, sea.depth);
+	float band = (1.0 - smoothstep(0.0, shore_band_width, abs(sea.distance))) * wet * shore_band_strength;
+	float surf = surf_lines(sea, v_grid) * surf_strength;
+	float breaking = smoothstep(0.15, 0.6, breaking_ratio * 2.0 * max(v_height, 0.0) - sea.depth) * wet * sea.open * breaking_strength;
+	shore = max(max(shore, band), max(surf, breaking));
+	// The foam field comes from deep-water waves: calm it with the chop.
+	FoamSample foam = foam_composite(v_grid, grid_dx, grid_dy, dist, shore, wave_calm.y, b > 0.0);
 	float milk = smoothstep(0.0, milk_range, foam.density) * milk_strength;
 
 	// Foam flattens the wave normal (but still follows it) and adds the lace's own relief.
@@ -185,7 +218,12 @@ void fragment() {
 	vec3 scatter = mix(shallow_color, deep_color, 1.0 - exp(-thickness / depth_scale)) * body_tint;
 	scatter = mix(scatter, height_tint, smoothstep(0.0, 2.5, v_height) * height_tint_strength);
 	scatter = mix(scatter, milk_color, milk);
-	vec3 transmittance = pow(water_transmittance, vec3(thickness / absorption_distance)) * (1.0 - milk);
+	// With a sea floor: turquoise over shallow ground (lagoon), sand stirred up in the surf zone (sediment).
+	float lagoon = lagoon_strength * exp(-max(sea.depth, 0.0) / lagoon_depth) * wet;
+	float sediment = sediment_strength * (1.0 - smoothstep(0.0, 0.6 * surf_zone, sea.distance)) * sea.open * wet;
+	scatter = mix(mix(scatter, lagoon_color, lagoon), sediment_color, sediment);
+	vec3 transmittance = pow(water_transmittance, vec3(thickness / absorption_distance)) * (1.0 - milk) * (1.0 - 0.6 * sediment);
+	vec3 lagoon_tint = mix(vec3(1.0), lagoon_color * 2.0, lagoon);
 
 	float r2 = roughness * roughness;
 	float alpha = sqrt(r2 * r2 + variance);
@@ -194,7 +232,7 @@ void fragment() {
 	// Foam takes light: a little darker in the troughs, lit in light() with wrapped diffuse.
 	vec3 foam_albedo = foam_color * mix(0.85, 1.0, clamp(v_height / 1.5 + 0.5, 0.0, 1.0));
 	ALBEDO = mix(scatter * (1.0 - transmittance) * (1.0 - fresnel), foam_albedo, foam.coverage);
-	EMISSION = refracted * transmittance * (1.0 - fresnel) * (1.0 - foam.coverage);
+	EMISSION = refracted * transmittance * lagoon_tint * (1.0 - fresnel) * (1.0 - foam.coverage);
 	ROUGHNESS = mix(sqrt(alpha), foam_roughness, foam.coverage);
 	SPECULAR = 0.354 * (1.0 - smoothstep(0.0, 0.4, foam.coverage)); // f0 = 0.16 * 0.354^2 = 0.02
 	ALPHA = smoothstep(0.0, shore_fade_distance, shore_depth);

@@ -81,9 +81,9 @@ mat2 foam_uv_matrix(float streak_angle) {
 		vec2(s / (foam_detail_stretch * foam_detail_tile), c / foam_detail_tile));
 }
 
-FoamSample foam_composite(vec2 grid, vec2 grid_dx, vec2 grid_dy, float dist, float shore, bool relief) {
+FoamSample foam_composite(vec2 grid, vec2 grid_dx, vec2 grid_dy, float dist, float shore, float field_scale, bool relief) {
 	FoamSample f;
-	vec2 field = foam_field_lookup(grid) * exp(-dist / foam_fade_range);
+	vec2 field = foam_field_lookup(grid) * exp(-dist / foam_fade_range) * field_scale;
 	f.density = field.r + shore;
 	f.fresh = field.g + 0.5 * shore;
 	float body = smoothstep(foam_trail_low, foam_trail_high, f.density);

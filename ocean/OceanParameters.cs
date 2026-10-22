@@ -29,6 +29,7 @@ internal static class OceanParameters
         };
         for (int i = 0; i < ocean.Config.Cascades.Length; i++) sets.Add(CascadeSet(ocean, i));
         sets.Add(FoamSet(ocean));
+        sets.Add(SpraySet(ocean));
         sets.Add(SurfaceSet(ocean));
         return sets;
     }
@@ -73,6 +74,20 @@ internal static class OceanParameters
             list.Add(Float(ocean, typeof(FoamConfig), p.Name, $"foam.{Camel(p.Name)}", "", order++, ApplyMode.Live,
                 c => (float)p.GetValue(c.Foam), (c, v) => p.SetValue(c.Foam, v)));
         return new ParameterSet("Foam field", list);
+    }
+
+    static ParameterSet SpraySet(Ocean ocean)
+    {
+        var list = new List<Parameter>();
+        int order = 0;
+        foreach (var p in typeof(SprayConfig).GetProperties())
+        {
+            // The particle count and lifetime restart the particles: apply them when the slider is released.
+            var mode = p.Name is nameof(SprayConfig.Amount) or nameof(SprayConfig.Lifetime) ? ApplyMode.OnRelease : ApplyMode.Live;
+            list.Add(Float(ocean, typeof(SprayConfig), p.Name, $"spray.{Camel(p.Name)}", "", order++, mode,
+                c => (float)p.GetValue(c.Spray), (c, v) => p.SetValue(c.Spray, v)));
+        }
+        return new ParameterSet("Spray", list);
     }
 
     /// <summary>One parameter per hinted uniform of ocean.gdshader, grouped by its group_uniforms.</summary>

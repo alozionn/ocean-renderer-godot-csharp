@@ -5,6 +5,7 @@ using Ocean.Core.Config;
 using Ocean.Core.Mesh;
 using Ocean.Core.Parameters;
 using Ocean.Core.Scheduling;
+using Ocean.Core.Shore;
 using Ocean.Foam;
 using Ocean.Simulation;
 using Ocean.Surface;
@@ -38,7 +39,59 @@ public partial class Ocean : Node3D
     double _clock;
     MeshInstance3D _surface;
     ShaderMaterial _material;
+    GpuParticles3D _spray;
+    ShaderMaterial _sprayMaterial, _sprayDraw;
+    SeaFloor _seaFloor;
     string _root;
+
+    /// <summary>The ground under the water, if a terrain has set one (<see cref="SetSeaFloor"/>).</summary>
+    public SeaFloor SeaFloor => _seaFloor;
+
+    /// <summary>
+    /// Tells the ocean what ground is under it, so waves calm in shallow water, enclosed lakes stay quiet, shore foam and
+    /// surf follow the coast and shallows tint. Build it from any terrain's height grid with
+    /// <see cref="SeaFloor.FromHeights"/> (sea level = this node's world y). Outside its rectangle the sea is deep.
+    /// </summary>
+    public void SetSeaFloor(SeaFloor floor)
+    {
+        if (floor == null)
+        {
+            ClearSeaFloor();
+            return;
+        }
+        _seaFloor = floor;
+        int n = floor.Width * floor.Depth;
+        var texels = new float[n * 3];
+        for (int i = 0; i < n; i++)
+        {
+            texels[i * 3] = floor.WaterDepth[i];
+            texels[i * 3 + 1] = floor.ShoreDistance[i];
+            texels[i * 3 + 2] = floor.OpenSea[i];
+        }
+        var bytes = new byte[texels.Length * sizeof(float)];
+        Buffer.BlockCopy(texels, 0, bytes, 0, bytes.Length);
+        var image = Image.CreateFromData(floor.Width, floor.Depth, false, Image.Format.Rgbf, bytes);
+        // Sample centres sit half a cell inside the texture's edges.
+        float half = floor.CellSize * 0.5f;
+        var rect = new Vector4(floor.Origin.X - half, floor.Origin.Y - half,
+            1f / (floor.Width * floor.CellSize), 1f / (floor.Depth * floor.CellSize));
+        SetShared(SurfaceUniforms.SeaFloor, ImageTexture.CreateFromImage(image));
+        SetShared(SurfaceUniforms.SeaFloorRect, rect);
+    }
+
+    /// <summary>Back to open deep sea everywhere.</summary>
+    public void ClearSeaFloor()
+    {
+        _seaFloor = null;
+        SetShared(SurfaceUniforms.SeaFloorRect, Vector4.Zero);
+    }
+
+    /// <summary>Sets a uniform both the surface and the spray read.</summary>
+    void SetShared(string name, Variant value)
+    {
+        _material?.SetShaderParameter(name, value);
+        _sprayMaterial?.SetShaderParameter(name, value);
+    }
 
     internal OceanPipelines Pipelines => _pipelines;
     internal IReadOnlyList<OceanCascade> Cascades => _cascades;
@@ -57,6 +110,7 @@ public partial class Ocean : Node3D
         foreach (var c in _cascades) c.Time = 0;
         _near?.Reset();
         _far?.Reset();
+        _spray?.Restart();
     }
 
     public override void _Ready()
@@ -67,6 +121,9 @@ public partial class Ocean : Node3D
         _material = (ShaderMaterial)_surface.MaterialOverride;
         _material.SetShaderParameter(SurfaceUniforms.MeshSpacing, OceanMesh.SnapStep);
         _material.SetShaderParameter(SurfaceUniforms.MeshGrowth, RingLayout.Growth());
+        _spray = GetNodeOrNull<GpuParticles3D>("Spray");
+        _sprayMaterial = _spray?.ProcessMaterial as ShaderMaterial;
+        _sprayDraw = (_spray?.DrawPass1 as PrimitiveMesh)?.Material as ShaderMaterial;
         _rd = RenderingServer.GetRenderingDevice();
         if (_rd == null)
         {
@@ -87,6 +144,7 @@ public partial class Ocean : Node3D
         BuildCascades();
         SetFoamDetail();
         ApplySurfaceOverrides(_config.Surface.Keys);
+        ApplySpray();
         _parameters = OceanParameters.Build(this);
     }
 
@@ -114,7 +172,15 @@ public partial class Ocean : Node3D
         {
             var p = camera.GlobalPosition;
             _surface.GlobalPosition = new Vector3(Mathf.Snapped(p.X, OceanMesh.SnapStep), GlobalPosition.Y, Mathf.Snapped(p.Z, OceanMesh.SnapStep));
+            if (_spray != null)
+            {
+                // Particles live in world space; the emitter only follows the camera so its bounds stay around it.
+                _spray.GlobalPosition = new Vector3(p.X, GlobalPosition.Y, p.Z);
+                _sprayMaterial?.SetShaderParameter(SurfaceUniforms.CameraXz, new Vector2(p.X, p.Z));
+            }
         }
+        if (_cascades.Length > 0) SetShared(SurfaceUniforms.ShoreTime, (float)_cascades[0].Time);
+        _sprayMaterial?.SetShaderParameter(SurfaceUniforms.SeaLevel, GlobalPosition.Y);
     }
 
     /// <summary>Records all work due this frame into one compute list, opened only if something is due.</summary>
@@ -143,9 +209,9 @@ public partial class Ocean : Node3D
             var xz = new Vector2(p.X, p.Z);
             _near.Record(list, xz, (float)foamDt, _config);
             _far.Record(list, xz, (float)foamDt, _config);
-            _material.SetShaderParameter(SurfaceUniforms.FoamNear, _near.Texture);
+            SetShared(SurfaceUniforms.FoamNear, _near.Texture);
             _material.SetShaderParameter(SurfaceUniforms.FoamFar, _far.Texture);
-            _material.SetShaderParameter(SurfaceUniforms.FoamNearRect, _near.Rect);
+            SetShared(SurfaceUniforms.FoamNearRect, _near.Rect);
             _material.SetShaderParameter(SurfaceUniforms.FoamFarRect, _far.Rect);
         }
         if (list >= 0) _rd.ComputeListEnd();
@@ -170,6 +236,7 @@ public partial class Ocean : Node3D
         }
         if (diff.FoamTexture) SetFoamDetail();
         ApplySurfaceOverrides(diff.Surface);
+        ApplySpray();
         SetCascadeUniforms();
         foreach (var set in _parameters)
             foreach (var p in set.Parameters) p.Refresh();
@@ -215,7 +282,7 @@ public partial class Ocean : Node3D
         }
         for (int i = 0; i < Math.Min(_cascades.Length, SurfaceUniforms.Displacement.Length); i++)
         {
-            _material.SetShaderParameter(SurfaceUniforms.Displacement[i], _cascades[i].DisplacementTexture);
+            SetShared(SurfaceUniforms.Displacement[i], _cascades[i].DisplacementTexture);
             _material.SetShaderParameter(SurfaceUniforms.Slope[i], _cascades[i].SlopeTexture);
         }
         _near?.Bind(_cascades);
@@ -228,6 +295,25 @@ public partial class Ocean : Node3D
         var texture = FoamDetailTexture.Load(_root, _config.FoamTexture);
         _material.SetShaderParameter(SurfaceUniforms.FoamDetail, texture);
         _material.SetShaderParameter(SurfaceUniforms.FoamDetailSoft, texture);
+        _sprayDraw?.SetShaderParameter(SurfaceUniforms.FoamDetail, texture);
+    }
+
+    void ApplySpray()
+    {
+        if (_spray == null || _sprayMaterial == null) return;
+        var s = _config.Spray;
+        _spray.Emitting = s.Amount >= 1f && s.Opacity > 0f;
+        int amount = Math.Max(1, (int)s.Amount);
+        if (_spray.Amount != amount) _spray.Amount = amount;
+        if (!Mathf.IsEqualApprox((float)_spray.Lifetime, s.Lifetime)) _spray.Lifetime = s.Lifetime;
+        _sprayMaterial.SetShaderParameter("spray_radius", s.Radius);
+        _sprayMaterial.SetShaderParameter("spray_threshold", s.Threshold);
+        _sprayMaterial.SetShaderParameter("spray_speed", s.Speed);
+        _sprayMaterial.SetShaderParameter("spray_wind", s.Wind);
+        _sprayMaterial.SetShaderParameter("spray_gravity", s.Gravity);
+        _sprayMaterial.SetShaderParameter("spray_size", s.Size);
+        _sprayMaterial.SetShaderParameter("spray_opacity", s.Opacity);
+        _sprayMaterial.SetShaderParameter("spray_shore", s.Shore);
     }
 
     void FreeCascades()
@@ -240,9 +326,11 @@ public partial class Ocean : Node3D
     {
         var size = new Vector3();
         for (int i = 0; i < Math.Min(3, _config.Cascades.Length); i++) size[i] = _config.Cascades[i].PatchSize;
-        _material.SetShaderParameter(SurfaceUniforms.PatchSizes, size);
+        SetShared(SurfaceUniforms.PatchSizes, size);
         _material.SetShaderParameter(SurfaceUniforms.TexelSizes, size / _config.Resolution);
         _material.SetShaderParameter(SurfaceUniforms.StreakAngle, Mathf.DegToRad(_config.Cascades[0].WindDirection + _config.Foam.StreakAngleOffset));
+        float wind = Mathf.DegToRad(_config.Cascades[0].WindDirection);
+        _sprayMaterial?.SetShaderParameter(SurfaceUniforms.WindDir, new Vector2(Mathf.Cos(wind), Mathf.Sin(wind)));
     }
 
     /// <summary>Writes the named surface overrides to the material; names without an override go back to the shader default.</summary>
@@ -256,6 +344,12 @@ public partial class Ocean : Node3D
                 _material.SetShaderParameter(name, f);
             else if (OceanConfigJson.TryColor(value, out var c))
                 _material.SetShaderParameter(name, new Color(c.X, c.Y, c.Z));
+        }
+        if (_sprayMaterial == null) return;
+        foreach (var name in SurfaceUniforms.ShoreShared)
+        {
+            var v = _material.GetShaderParameter(name);
+            _sprayMaterial.SetShaderParameter(name, v.VariantType != Variant.Type.Nil ? v : RenderingServer.ShaderGetParameterDefault(_material.Shader.GetRid(), name));
         }
     }
 }

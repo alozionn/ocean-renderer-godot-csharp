@@ -1,10 +1,12 @@
 [gd_scene format=3 uid="uid://mfttsrf3shb0"]
 
 [ext_resource type="PackedScene" path="res://ocean/ocean.tscn" id="1_ocean"]
-[ext_resource type="PackedScene" path="res://demo/props/rock.tscn" id="2_rock"]
+[ext_resource type="PackedScene" path="res://demo/props/island_terrain.tscn" id="2_island"]
 [ext_resource type="Script" uid="uid://0lvnt7hrdbly" path="res://demo/camera/FreeFlyCamera.cs" id="3_camera"]
 [ext_resource type="Script" uid="uid://tug8igwqcqs3" path="res://demo/DemoRoot.cs" id="4_root"]
 [ext_resource type="PackedScene" path="res://demo/ui/ParameterPanel.tscn" id="5_panel"]
+[ext_resource type="PackedScene" path="res://demo/boat/boat.tscn" id="6_boat"]
+[ext_resource type="Script" uid="uid://cavxxl13yargr" path="res://demo/boat/BoatCamera.cs" id="7_boatcam"]
 
 [sub_resource type="Sky" id="Sky_1"]
 radiance_size = 2
@@ -23,6 +25,10 @@ fog_density = 0.0005
 fog_aerial_perspective = 1.0
 fog_sky_affect = 0.0
 
+[sub_resource type="CapsuleShape3D" id="CapsuleShape3D_1r212"]
+
+[sub_resource type="CapsuleMesh" id="CapsuleMesh_1r212"]
+
 [node name="Main" type="Node3D" unique_id=1841102341]
 
 [node name="WorldEnvironment" type="WorldEnvironment" parent="." unique_id=1465902609]
@@ -37,8 +43,29 @@ fov = 70.0
 far = 8000.0
 script = ExtResource("3_camera")
 
-[node name="Rock" parent="." unique_id=190835362 instance=ExtResource("2_rock")]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 120, -8, -160)
+[node name="Island" parent="." unique_id=190835362 instance=ExtResource("2_island")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 250, 0, -700)
+
+[node name="Boat" parent="." unique_id=165007179 instance=ExtResource("6_boat")]
+transform = Transform3D(0.8, 0, -0.6, 0, 1, 0, 0.6, 0, 0.8, 60, 0, -150)
+MaxSpeed = 16.0
+Acceleration = 6.0
+TurnRate = 29.0
+
+[node name="RigidBody3D" type="RigidBody3D" parent="Boat" unique_id=499910770]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 1.7999992, 6, -7.600006)
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="Boat/RigidBody3D" unique_id=539665559]
+shape = SubResource("CapsuleShape3D_1r212")
+
+[node name="MeshInstance3D" type="MeshInstance3D" parent="Boat/RigidBody3D" unique_id=835544424]
+mesh = SubResource("CapsuleMesh_1r212")
+
+[node name="BoatCamera" type="Camera3D" parent="." unique_id=136885349]
+fov = 70.0
+far = 8000.0
+script = ExtResource("7_boatcam")
+TargetPath = NodePath("../Boat")
 
 [node name="Ocean" parent="." unique_id=1109678040 instance=ExtResource("1_ocean")]
 ConfigPath = "res://demo/presets/ocean_breeze.json"
@@ -75,5 +102,9 @@ script = ExtResource("4_root")
 OceanPath = NodePath("../Ocean")
 EnvironmentPath = NodePath("../WorldEnvironment")
 SunPath = NodePath("../Sun")
+IslandPath = NodePath("../Island")
 OceanPanelPath = NodePath("../UI/OceanPanel")
 EnvironmentPanelPath = NodePath("../UI/EnvironmentPanel")
+CameraPath = NodePath("../Camera")
+BoatPath = NodePath("../Boat")
+BoatCameraPath = NodePath("../BoatCamera")

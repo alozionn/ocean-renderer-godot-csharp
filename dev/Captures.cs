@@ -20,7 +20,7 @@ internal static class Captures
         ["top_down"] = new[] { 0f, 250, 0, -60, 30 },
         ["close"] = new[] { 0f, 4, 0, -30, 20 },
         ["close_down"] = new[] { 0f, 7, 0, -62, 40 },
-        ["shore"] = new[] { 60f, 10, -110, -15, -50 },
+        ["shore"] = new[] { 120f, 14, -300, -12, -20 },
         ["overview"] = new[] { 0f, 52, -40, -33, -24 }, // the demo's default camera
     };
 
