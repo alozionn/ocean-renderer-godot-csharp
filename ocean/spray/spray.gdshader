@@ -98,6 +98,7 @@ void process() {
 	TRANSFORM[0].xyz = vec3(size, 0.0, 0.0);
 	TRANSFORM[1].xyz = vec3(0.0, size, 0.0);
 	TRANSFORM[2].xyz = vec3(0.0, 0.0, size);
-	float fade = smoothstep(0.0, 0.08, age) * (1.0 - smoothstep(0.35, 1.0, age));
+	// Quick to appear, then thinning out from the start: spray is a burst, not a cloud that lingers.
+	float fade = smoothstep(0.0, 0.05, age) * pow(1.0 - age, 1.6);
 	COLOR = vec4(1.0, 1.0, 1.0, spray_opacity * fade * mix(0.5, 1.0, CUSTOM.w));
 }

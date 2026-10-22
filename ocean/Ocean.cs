@@ -40,7 +40,7 @@ public partial class Ocean : Node3D
     MeshInstance3D _surface;
     ShaderMaterial _material;
     GpuParticles3D _spray;
-    ShaderMaterial _sprayMaterial, _sprayDraw;
+    ShaderMaterial _sprayMaterial;
     SeaFloor _seaFloor;
     string _root;
 
@@ -123,7 +123,6 @@ public partial class Ocean : Node3D
         _material.SetShaderParameter(SurfaceUniforms.MeshGrowth, RingLayout.Growth());
         _spray = GetNodeOrNull<GpuParticles3D>("Spray");
         _sprayMaterial = _spray?.ProcessMaterial as ShaderMaterial;
-        _sprayDraw = (_spray?.DrawPass1 as PrimitiveMesh)?.Material as ShaderMaterial;
         _rd = RenderingServer.GetRenderingDevice();
         if (_rd == null)
         {
@@ -295,7 +294,6 @@ public partial class Ocean : Node3D
         var texture = FoamDetailTexture.Load(_root, _config.FoamTexture);
         _material.SetShaderParameter(SurfaceUniforms.FoamDetail, texture);
         _material.SetShaderParameter(SurfaceUniforms.FoamDetailSoft, texture);
-        _sprayDraw?.SetShaderParameter(SurfaceUniforms.FoamDetail, texture);
     }
 
     void ApplySpray()

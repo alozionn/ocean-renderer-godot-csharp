@@ -28,8 +28,8 @@ cast_shadow = 0
 
 [node name="Spray" type="GPUParticles3D" parent="."]
 cast_shadow = 0
-amount = 8000
-lifetime = 1.6
+amount = 3000
+lifetime = 1.0
 visibility_aabb = AABB(-600, -60, -600, 1200, 160, 1200)
 process_material = SubResource("ShaderMaterial_spray")
 draw_pass_1 = SubResource("QuadMesh_spray")

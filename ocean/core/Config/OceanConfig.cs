@@ -75,8 +75,8 @@ public sealed class FoamConfig
 public sealed class SprayConfig
 {
     /// <summary>Particle budget; each particle tries one spawn per lifetime, so this sets how many places get tested.</summary>
-    [Range(0, 30000, 100)] public float Amount { get; set; } = 8000f;
-    [Range(0.2, 6, 0.05)] public float Lifetime { get; set; } = 1.6f;
+    [Range(0, 30000, 100)] public float Amount { get; set; } = 3000f;
+    [Range(0.2, 6, 0.05)] public float Lifetime { get; set; } = 1.0f;
     /// <summary>Spawn area around the camera (m).</summary>
     [Range(10, 500, 1)] public float Radius { get; set; } = 160f;
     /// <summary>Crest freshness a crest needs before it throws spray.</summary>
