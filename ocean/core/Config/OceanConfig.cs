@@ -75,18 +75,18 @@ public sealed class FoamConfig
 public sealed class SprayConfig
 {
     /// <summary>Particle budget; each particle tries one spawn per lifetime, so this sets how many places get tested.</summary>
-    [Range(0, 30000, 100)] public float Amount { get; set; } = 3000f;
-    [Range(0.2, 6, 0.05)] public float Lifetime { get; set; } = 1.0f;
+    [Range(0, 30000, 100)] public float Amount { get; set; } = 1200f;
+    [Range(0.2, 6, 0.05)] public float Lifetime { get; set; } = 0.8f;
     /// <summary>Spawn area around the camera (m).</summary>
     [Range(10, 500, 1)] public float Radius { get; set; } = 160f;
     /// <summary>Crest freshness a crest needs before it throws spray.</summary>
     [Range(0, 2, 0.01)] public float Threshold { get; set; } = 0.3f;
     /// <summary>Upward launch speed (m/s).</summary>
-    [Range(0, 20, 0.1)] public float Speed { get; set; } = 4.5f;
+    [Range(0, 20, 0.1)] public float Speed { get; set; } = 2.5f;
     /// <summary>Drift along the wind (m/s).</summary>
-    [Range(0, 20, 0.1)] public float Wind { get; set; } = 4f;
+    [Range(0, 20, 0.1)] public float Wind { get; set; } = 5f;
     /// <summary>Fall acceleration as a fraction of g: mist is held up by air drag.</summary>
-    [Range(0, 2, 0.01)] public float Gravity { get; set; } = 0.5f;
+    [Range(0, 2, 0.01)] public float Gravity { get; set; } = 0.9f;
     /// <summary>Puff size at birth (m); puffs grow as they spread.</summary>
     [Range(0.1, 10, 0.05)] public float Size { get; set; } = 1.8f;
     [Range(0, 1, 0.01)] public float Opacity { get; set; } = 0.5f;

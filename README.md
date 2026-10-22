@@ -97,11 +97,11 @@ did. The demo's island pushes its heightmap on every (re)generation (`DemoRoot`)
 GPU particles (`ocean/spray/`, the `Spray` child of `ocean.tscn`). Each particle, when it restarts, picks a random
 spot around the camera and asks the ocean's own data whether spray belongs there: fresh crest foam from the near foam
 field (freshness above `threshold`), or a surf line or breaking shallow from the sea floor. If not, it stays inactive
-for that lifetime. Spray bursts up, drifts with the wind (cascade 0's direction), falls back and thins out within a
+for that lifetime. Spray hops up, arcs downwind (cascade 0's direction), falls back and thins out within a
 second; each puff is a camera-facing quad shaded procedurally (a ragged mist body that billows as it ages, plus
 distinct droplets that are gone by mid-life), back-lit by the sun and drawn after the water. No readback: the
 particle shader samples the same displacement, foam and sea-floor textures as the surface. Settings live in the
-config's `spray` object and the Spray panel; cost is about 0.02 ms at the default 3000 particles.
+config's `spray` object and the Spray panel; cost is about 0.02 ms or less at the default 1200 particles.
 
 ## Configuration
 
@@ -118,7 +118,7 @@ Plain JSON (camelCase, unknown fields ignored, missing fields keep their default
     {}
   ],
   "foam": { "bias": 0.64 },
-  "spray": { "amount": 3000, "lifetime": 1.0, "threshold": 0.3, "opacity": 0.5 },
+  "spray": { "amount": 1200, "lifetime": 0.8, "speed": 2.5, "gravity": 0.9 },
   "foamTexture": "crest",
   "surface": { "foam_veil": 0.3, "sss_color": "#14383d", "surf_spacing": 20 }
 }
