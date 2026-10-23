@@ -129,6 +129,8 @@ public partial class DemoRoot : Node
                 Changed();
             }));
         }
+        if (GetNodeOrNull<Boat.Boat>(BoatPath ?? new NodePath()) is { } boat)
+            list.Add(Parameter.Bool("env.boatFloats", "Boat floats", "", 8, () => boat.Floating, v => boat.Floating = v));
         return new ParameterSet("Environment", list);
     }
 }

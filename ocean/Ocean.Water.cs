@@ -42,6 +42,8 @@ public partial class Ocean
 
     /// <summary>The CPU sampler behind <see cref="SampleWater(Vector3)"/>: components and captured energy, for tools.</summary>
     internal WaveSampler WaterSampler => _waves;
+    /// <summary>The last batch query: how many points and how long it took, for the readout.</summary>
+    internal (int Points, double Milliseconds) LastWaterQuery { get; private set; }
 
     /// <summary>The water surface over a world position's xz, at the time the surface currently shows.</summary>
     public WaterSample SampleWater(Vector3 worldPosition)
@@ -55,6 +57,7 @@ public partial class Ocean
     public void SampleWater(ReadOnlySpan<Vector3> worldPositions, Span<WaterSample> results)
     {
         int n = worldPositions.Length;
+        long start = System.Diagnostics.Stopwatch.GetTimestamp();
         if (_waterPoints.Length < n)
         {
             _waterPoints = new System.Numerics.Vector2[n];
@@ -75,6 +78,7 @@ public partial class Ocean
                 Velocity = new Vector3(s.Velocity.X, s.Velocity.Y, s.Velocity.Z),
             };
         }
+        LastWaterQuery = (n, System.Diagnostics.Stopwatch.GetElapsedTime(start).TotalMilliseconds);
     }
 
     /// <summary>Follows the config and the surface's shore uniforms; re-selects components only when a spectrum changed.</summary>

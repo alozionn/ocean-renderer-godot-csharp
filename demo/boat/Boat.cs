@@ -21,6 +21,8 @@ public partial class Boat : Node3D
     [Export] public float FloatFrequency { get; set; } = 3f; // rad/s: how firmly the hull follows the water
 
     public bool Controlled { get; set; }
+    /// <summary>Ride the waves; off, the hull eases back to level at sea level (the old levitating boat).</summary>
+    public bool Floating { get; set; } = true;
     public float Speed { get; private set; }
     /// <summary>The ocean to float on.</summary>
     public OceanNode Water { get; set; }
@@ -92,12 +94,13 @@ public partial class Boat : Node3D
 
     /// <summary>
     /// Least-squares plane through the water under the hull points: heave, pitch and roll, and how fast they change
-    /// for a boat moving at <paramref name="velocity"/>. Null without water.
+    /// for a boat moving at <paramref name="velocity"/>. Level at sea level when not floating; null without water.
     /// </summary>
     Vector3? Fit(Vector3 velocity, out Vector3 rate)
     {
         rate = Vector3.Zero;
         if (Water == null) return null;
+        if (!Floating) return new Vector3(Water.GlobalPosition.Y + Draft, 0f, 0f);
         var right = new Vector3(Mathf.Cos(_yaw), 0f, -Mathf.Sin(_yaw));
         var back = new Vector3(Mathf.Sin(_yaw), 0f, Mathf.Cos(_yaw));
         for (int i = 0; i < Hull.Length; i++) _points[i] = GlobalPosition + right * Hull[i].X + back * Hull[i].Y;

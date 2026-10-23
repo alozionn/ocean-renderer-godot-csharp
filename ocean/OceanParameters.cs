@@ -30,6 +30,7 @@ internal static class OceanParameters
         for (int i = 0; i < ocean.Config.Cascades.Length; i++) sets.Add(CascadeSet(ocean, i));
         sets.Add(FoamSet(ocean));
         sets.Add(SpraySet(ocean));
+        sets.Add(WaterSamplingSet(ocean));
         sets.Add(SurfaceSet(ocean));
         return sets;
     }
@@ -88,6 +89,30 @@ internal static class OceanParameters
                 c => (float)p.GetValue(c.Spray), (c, v) => p.SetValue(c.Spray, v)));
         }
         return new ParameterSet("Spray", list);
+    }
+
+    /// <summary>
+    /// The CPU water sampler (<see cref="Ocean.SampleWater(Vector3)"/>): how many swell and chop waves it sums, how much of
+    /// each cascade's energy they capture, and what the last query cost. A quality/cost setting, not part of presets.
+    /// </summary>
+    static ParameterSet WaterSamplingSet(Ocean ocean)
+    {
+        string Energy(int cascade)
+        {
+            var s = ocean.WaterSampler;
+            return cascade < s.CascadeCount ? $"{s.Count(cascade)} waves, {s.CapturedEnergy(cascade) * 100f:F0} % of the energy" : "-";
+        }
+        return new ParameterSet("Water sampling", new[]
+        {
+            Parameter.Int("water.swellWaves", "Swell waves", "", 0, () => ocean.SampledSwellWaves, v => ocean.SampledSwellWaves = v,
+                0, 1024, ApplyMode.OnRelease),
+            Parameter.Int("water.chopWaves", "Chop waves", "", 1, () => ocean.SampledChopWaves, v => ocean.SampledChopWaves = v,
+                0, 256, ApplyMode.OnRelease),
+            Parameter.Readout("water.swellEnergy", "Swell", "", 2, () => Energy(0)),
+            Parameter.Readout("water.chopEnergy", "Chop", "", 3, () => Energy(1)),
+            Parameter.Readout("water.lastQuery", "Last query", "", 4, () =>
+                ocean.LastWaterQuery.Points == 0 ? "none yet" : $"{ocean.LastWaterQuery.Points} points, {ocean.LastWaterQuery.Milliseconds:F3} ms"),
+        });
     }
 
     /// <summary>One parameter per hinted uniform of ocean.gdshader, grouped by its group_uniforms.</summary>

@@ -56,12 +56,12 @@ foreach (var set in ocean.Parameters)          // live knobs for your own UI or 
 | `Snapshot()` | a copy of the live config |
 | `Apply(config)` | replaces the config; regenerates a cascade's spectrum only when its spectrum fields change, rebuilds GPU resources only when the resolution changes |
 | `LoadConfig(path)` / `SaveConfig(path)` | `res://`, `user://` or absolute paths |
-| `Parameters` | `ParameterSet`s: Ocean, Cascade 0–2, Foam field, Spray, Surface (built from the shader's uniform groups) |
+| `Parameters` | `ParameterSet`s: Ocean, Cascade 0–2, Foam field, Spray, Water sampling, Surface (built from the shader's uniform groups) |
 | `ConfigChanged` | raised after every `Apply` |
 | `SetSeaFloor(floor)` / `ClearSeaFloor()` / `SeaFloor` | the ground under the water (see [Shores and terrain](#shores-and-terrain)); without one the sea is deep everywhere |
 | `SampleWater(worldPos)` / `SampleWater(positions, results)` | the water over a world xz: `Height` (world y), `Normal`, `Velocity` of the surface water (see [Sampling the water](#sampling-the-water)) |
 | `WaterTime` | the waves' clock: the swell cascade's simulation time (s), restarts with the ocean |
-| `SampledSwellWaves` / `SampledChopWaves` | components the CPU sampler sums (256 / 32) |
+| `SampledSwellWaves` / `SampledChopWaves` | components the CPU sampler sums (256 / 32); also in the panel's "Water sampling" set, with how much of each cascade's energy they capture and the last query's cost |
 
 ## Shores and terrain
 
@@ -188,8 +188,8 @@ sunset.
 
 | Key | |
 |---|---|
-| F1 | ocean panel (presets, cascades, foam, spray, surface incl. shore) |
-| F2 | environment panel (sky, yaw, sun elevation, energies, glow, island seed / new island) |
+| F1 | ocean panel (presets, cascades, foam, spray, water sampling, surface incl. shore) |
+| F2 | environment panel (sky, yaw, sun elevation, energies, glow, island seed / new island, boat floats) |
 | F3 | Debug Menu (FPS, frame times) |
 | W A S D, Q / E | fly, down / up |
 | hold right mouse | look |
