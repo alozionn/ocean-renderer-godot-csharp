@@ -57,6 +57,27 @@ public sealed class SeaFloor
         return new SeaFloor(width, depth, cellSize, origin, water, shore, open);
     }
 
+    /// <summary>
+    /// The sea floor at a world xz, filtered like the shader's linear, clamped texture (bilinear between sample centres);
+    /// deep open sea beyond the texture, which spans half a cell past the outer sample centres.
+    /// </summary>
+    public ShorePoint Sample(Vector2 xz)
+    {
+        float fx = (xz.X - Origin.X) / CellSize, fz = (xz.Y - Origin.Y) / CellSize;
+        if (fx < -0.5f || fz < -0.5f || fx > Width - 0.5f || fz > Depth - 0.5f) return ShorePoint.Deep;
+        fx = Math.Clamp(fx, 0f, Width - 1);
+        fz = Math.Clamp(fz, 0f, Depth - 1);
+        int x0 = Math.Min((int)fx, Width - 2), z0 = Math.Min((int)fz, Depth - 2);
+        float tx = fx - x0, tz = fz - z0;
+        float Bilinear(float[] v)
+        {
+            int i = z0 * Width + x0;
+            float top = v[i] + (v[i + 1] - v[i]) * tx, bottom = v[i + Width] + (v[i + Width + 1] - v[i + Width]) * tx;
+            return top + (bottom - top) * tz;
+        }
+        return new ShorePoint(Bilinear(WaterDepth), Bilinear(ShoreDistance), Bilinear(OpenSea), 0f);
+    }
+
     /// <summary>Wet samples connected to the grid border (4-neighbour flood fill). With no wet border, every wet sample is open sea.</summary>
     static float[] OpenWater(float[] water, int width, int depth)
     {

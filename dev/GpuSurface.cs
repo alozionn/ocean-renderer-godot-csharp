@@ -20,6 +20,7 @@ internal sealed class GpuSurface
     readonly int _n;
 
     public SeaFloor Floor { get; init; }
+    public BodyLayer Bodies { get; init; }
     public ShoreCalm Calm { get; init; } = ShoreCalm.Default;
 
     public GpuSurface(RenderingDevice rd, ReadOnlySpan<OceanCascade> cascades, ReadOnlySpan<float> patchSizes)
@@ -40,7 +41,7 @@ internal sealed class GpuSurface
 
     public Vec3 Displacement(Vec2 grid)
     {
-        var shore = Floor == null ? ShoreCalm.Deep : ShoreCalm.Lookup(Floor, grid);
+        var shore = BodyLayer.Lookup(Floor, Bodies, grid);
         var sum = Vec3.Zero;
         for (int c = 0; c < _disp.Length; c++)
         {

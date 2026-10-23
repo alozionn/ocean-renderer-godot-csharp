@@ -23,6 +23,9 @@ What building and refining this ocean taught, each with where it is specified. E
 - **Shore depth is measured along the view ray:** a vertical depth made every crest above the horizon transparent (10).
 - **Displacement is mip-filtered to each vertex's spacing:** point-sampled, the outer rings alias and the far sea swims as the camera moves, with fake crests that get no foam (8.2, 8.3, 10).
 - **Distant crests keep foam:** `foam_fade_range` 400 m; 220 m left crests beyond ~300 m bare (9.5).
+- **Surf must not be rings:** the same line strength all round a small island reads as a target. Fronts need gaps along the coast that change from front to front, a windward bias and a fade-in near the shore (10.1).
+- **The swell travels against the wind vector:** `cos(k·p + ωt)` with k along the wind moves crests along −k; windward and lee were swapped until checked (10.1, tested).
+- **Bodies fold into the shore data, not a second foam path:** islands and props then share waterline foam, lee, surf, breaking and swash, and the CPU sampler agrees (10.1).
 - **Verify sky sun positions by capture:** automatic measurement from the image was up to 13° off (11).
 
 **Process**
@@ -110,9 +113,11 @@ Three layers. Each one uses only the public surface of the layer below, and the 
   README.md, LICENSE, THIRD_PARTY_NOTICES.md
   ocean/                           THE RENDERER
     Ocean.cs                       the node: public API (section 6), lifetime, tick scheduling
+    Ocean.Water.cs, Ocean.Bodies.cs  SampleWater; the body list and its fold (section 10.1)
     ocean.tscn                     Ocean (Node3D) > Surface (MeshInstance3D + material), Spray (GPUParticles3D)
     core/                          pure C#, no Godot types (compiled into the game AND linked into tests)
-      Spectrum/  Fft/  Scheduling/  Foam/  Mesh/  Gpu/  Config/  Parameters/  Shore/ (SeaFloor: depth, shore distance, open sea)
+      Spectrum/  Fft/  Scheduling/  Foam/  Mesh/  Gpu/  Config/  Parameters/  Sampling/ (WaveSampler, ShoreCalm)
+      Shore/ (SeaFloor: depth, shore distance, open sea; BodyLayer: bodies folded into fine pages)  Bodies/ (WaterBody)
     simulation/                    OceanPipelines, OceanCascade, RdResources; shaders/ spectrum, fft, mipmap .glsl
     foam/                          OceanFoamField, FoamDetailTexture (procedural fallback); shaders/foam_field.glsl
     surface/                       OceanMesh, SurfaceUniforms, ocean.gdshader, include/ sampling, lighting, foam_composite, shore
@@ -123,7 +128,7 @@ Three layers. Each one uses only the public surface of the layer below, and the 
     DemoRoot.cs                    wires the demo: loads presets, hands parameter sets to the panels
     camera/FreeFlyCamera.cs
     environment/                   SkyPreset (plain C#), SkyRig.cs (applies a preset to WorldEnvironment + Sun)
-    props/island_terrain.tscn, IslandTerrain.cs, island_terrain.gdshader
+    props/island_terrain.tscn, IslandTerrain.cs, island_terrain.gdshader; WaterProps.cs (sea stack, reef, pontoon on piles)
     boat/                          boat.tscn, Boat.cs (levitating, WASD), BoatCamera.cs (chase), Kenney ship-pirate-large.glb
     ui/                            ParameterPanel.tscn/.cs (generic presenter) + rows/ FloatRow, IntRow, BoolRow, EnumRow, ColorRow, ActionRow, ReadoutRow (.tscn/.cs), demo_theme.tres
     presets/                       ocean_*.json, skies.json
@@ -239,6 +244,12 @@ public partial class Ocean : Node3D
     public void SaveConfig(string path);
     public IReadOnlyList<ParameterSet> Parameters { get; }     // live knobs for UIs/tools (section 12); built in _Ready
     public event Action ConfigChanged;
+
+    public void SetSeaFloor(SeaFloor floor); public void ClearSeaFloor(); public SeaFloor SeaFloor { get; } // terrain (10.1)
+    public void AddBody(WaterBody body); public void RemoveBody(WaterBody body); public void ClearBodies();
+    public void UpdateBodies();                                // after changing registered bodies; refolds next frame if needed
+    public IReadOnlyList<WaterBody> Bodies { get; } public BodyLayer BodyLayer { get; }
+    public WaterSample SampleWater(Vector3 worldPosition);     // + batch overload; CPU, no readback
 }
 ```
 - With no `ConfigPath`, the ocean uses `OceanConfig.Default` (the "calm" values in section 7). Dropping `ocean.tscn` into any scene with a camera, a light and an environment gives you water with no setup.
@@ -487,6 +498,30 @@ These are a safety net; the captures decide.
 
 **Gate M2:** waves, glint, sky reflection and colour look right in the captures without foam; `low_away` has no black facets; FPS targets met.
 
+### 10.1 Shore: sea floor, bodies, surf and swash (`include/shore.gdshaderinc`)
+
+**One shore sample** (`shore_at(xz)`, CPU copy `BodyLayer.Lookup`): depth (m, negative on land), signed distance to the nearest open-sea shoreline or body waterline (m, + at sea), open (1 sea, 0 land or lake), shelter (0–1, lee of a body). Read once per vertex and once per fragment; the surf/swash zones add one more read upwind (`shore_facing`). Deep open sea outside all data.
+
+**Terrain** (`SeaFloor.FromHeights`, `Ocean.SetSeaFloor`): one RGB32F texture, depth, exact Euclidean distance transform (Felzenszwalb–Huttenlocher, zero half a cell between wet and dry samples), open sea by 4-neighbour flood fill from the grid border.
+
+**Bodies** (`WaterBody`, `Ocean.AddBody`): one list for every water effect. Footprint = rounded rectangle at the waterline (`Position`, `Heading` = Godot yaw so the length axis is `(cos h, −sin h)`, `Length`, `Beam`, `Rounding`), `Top` (above sea level; < 0 submerged), `Draft` (∞ grounded), `Skirt`, `Reach` (default `clamp(min(L, B)/3 + skirt, 0.6, 24)`), `Lee` 0.6, `LeeLength` 3, `Velocity`, `Stationary`. Only stationary ones fold; moving ones stay in the list for boat effects built on it later (hull cutout, foam trail injection, Kelvin wake, bow wave).
+
+**Fold** (`BodyLayer.Build(terrain, bodies, swellDir)`, 16 m pages × 64 cells = 0.25 m, edges shared): pages cover each body's footprint grown by `max(1.5·reach + 1, skirt)` plus its lee box downwind, on a world-aligned 16 m lattice. Each sample starts from the terrain's bilinear sample and folds every body whose cover contains it:
+- depth: grounded (terrain depth ≤ draft) inside → `min(depth, −top)`, open 0 if top > 0; grounded with a skirt outside → `min(depth, terrain_depth · min(s / skirt, 1))`; floating inside → unchanged (waves run under a moored hull).
+- distance: `min(d, s + (d_terrain − s) · smoothstep(reach, 1.5·reach + 1, s))`: the body's signed distance near it, exactly the terrain's beyond the blend, so pages join the coarse texture without a seam (tested).
+- shelter: `max` of each body's lee: with u along the swell from the centre, v across, half depth a, half width w, length L = LeeLength · 2w, behind = max(u − a, 0): `Lee · (1 − smoothstep(0.6w', 1.2w' + 0.5, v)) · saturate((u + a)/2a) · (1 − smoothstep(0, L, behind)) · smoothstep(0, 1, s)`, w' = w (1 − behind / 2L). Zero inside its own footprint, so a moored hull's own lee never calms the water it samples.
+Upload: atlas RGBA32F (pages in rows of ⌈√n⌉), index R32F (page + 1, `texelFetch`), `body_rect` (corner xz, page size, pages per row), `body_samples`. Rebuilt in `_Process` at most once a frame when `UpdateBodies`/`Add`/`Remove`/`SetSeaFloor`/the swell direction changed **and** the hash of the stationary bodies differs.
+
+**Swell direction** (`shore_wave_dir`): minus cascade 0's wind vector. The spectrum's energy sits at k along the wind and each component is `cos(k·p + ωt + φ)`, so crests travel along −k (tested). Spray's `wind_dir` still uses +wind.
+
+**Calm:** `smoothstep(0, (16, 5, 0.6) m, depth) · mix(lake_waves, 1, open) · (1 − shelter · (1, 0.8, 0.3))` per cascade, in the vertex shader, fragment normals, foam field and CPU sampler alike.
+
+**Surf** (`surf_front`, `surf_lines`): x = (d + warp + t·speed) / spacing, warp = (1.1·noise(xz·0.011) + 0.35·noise(xz·0.037)) · spacing; front = floor(x), phase = fract(x). Per front, along-coast noise `noise(xz / surf_patch + front·(7.31, 3.17))` through `smoothstep(surf_gaps, surf_gaps + 0.25)`, × set `0.7 + 0.3 sin(front·2.39996 + 2π·noise(xz·0.004))`, × `mix(1, smoothstep(−0.9, 0.6, facing), surf_windward)`, × (1 − shelter). Line `pow(1 − phase, sharpness) · smoothstep(0, 0.06, phase)`, zone `1 − smoothstep(0.15·zone, zone, d)`, 0 for d < 0, lakes and land. The per-front strength switches where the line is 0 (phase 0), so there are no seams. Defaults: zone 30, spacing 16, speed 2.2, sharpness 7, strength 1.0, gaps 0.35, patch 40, windward 0.6. Facing: `(d(xz − dir·2) − d(xz)) / 2`, the cosine because |∇d| = 1. The old rings (zone 45, strength 0.7, the same everywhere) read as a target around small islands.
+
+**Swash** (`swash`): for |d| within the swash band (seaward to `swash_width` 6 m, landward to 2× it, fading over the second half), not in lakes, and only where depth < 1–3 m (beaches, grounded bodies; not hulls): the front reaching d = 0 gives phase p; run-up `smoothstep(0, 0.18, p) · (1 − smoothstep(0.25, 1, p))` × `mix(0.25, 1, front strength)` lifts `VERTEX.y` by up to `swash_height` 0.3 m, tapering seaward. The land side of the mesh lies under the terrain, so lifting it moves the wet edge up the beach. Uprush foam `(1 − smoothstep(0, 0.45, p)) · smoothstep(0, 0.05, p) · swash_foam 0.7` within half the band. `v_height` (breaking, crest scatter) excludes the lift. The CPU sampler ignores swash.
+
+**Cost:** one extra `texelFetch` per shore read and one extra read in the surf/swash zones; `--bench` at the props and windward poses within ±0.03 ms of the previous shader.
+
 ---
 
 ## 11. Demo scene (milestone M2/M4)
@@ -506,6 +541,7 @@ These are a safety net; the captures decide.
   All five rows are verified by capture. Automatic measurement from the image (brightest pixel, or warmth × brightness) is unreliable on these tonemapped sunsets: it lands on haze below the disc and was off by up to 13° of elevation, so don't build it. **Verify by capture instead**: camera at `0,15,0,0,0` (level, yaw 0), find the painted disc's pixel (x, y), then azimuth error = `atan((x − 960)/960 · tan(hfov/2))` (hfov/2 from vertical fov 70° at 16:9: `tan = 0.7 · 16/9`), elevation = `atan((540 − y)/540 · tan(35°))`. Add the azimuth error to the table value; the glint must sit under the disc. Keep the procedural sky's ground non-black.
 - **Island** (`demo/props/island_terrain.tscn`, `IslandTerrain.cs`): a seeded heightmap ported from Mushrook (`GridData.generateHeightMap`): Perlin fbm (frequency 0.02 per cell, 4 octaves) with two layers of domain warping, × `MaxHeight` 15, lifted +2 and sunk towards `SeaFloor` −8 by a radial smoothstep falloff from 0.45 of the radius, so it reads as islands in open water; below sea level depth is squared (`h² / SeaFloor`) so coasts get clear shallows before the drop-off. 256 × 256 cells of 4 m (≈1 km), centred at (250, 0, −700), right of the glint; heights in band units × `HeightScale` 4 m. `island_terrain.gdshader` ports Mushrook's colour bands (muddy sand under water, sand, grass, hill, mountain, snow), land decoded with pow 2.2 so it keeps its saturation under ACES, the seabed left as authored (light sand: decoded it reads as deep water). Caustics also ported: Mushrook's ridged cellular noise (seamless 512² texture), two scrolling rotated layers multiplied, `pow(·, 2)` to focus the mid-grey texture into lines, × 3, 0.05 repeats per metre, fading in over 0.6 m below sea level and out over 12 m of depth. `Seed` 7 by default (captures stay deterministic); the Environment panel has **Island seed** and **New island** (random seed). No collision. Every generation raises `Generated`; `DemoRoot` builds a `SeaFloor` from `WorldHeights` and calls `Ocean.SetSeaFloor` (README "Shores and terrain"), which calms the waves in the shallows and drives shore foam, surf, spray and the lagoon tint.
 - **Boat** (`demo/boat/`): Kenney's `ship-pirate-large.glb` (CC0) at ×2.5 (≈33 m), keel 2.5 m below y = 0, turned 180° so the bow faces −Z; starts at (60, 0, −150). `Boat.cs` holds a fixed height (no physics, no water coupling): W/S throttle (reverse at half), A/D rudder scaled by speed, Shift ×3, exponential drag when coasting. `BoatCamera` chases from behind (55 m, pitch −15°, swings in at rate 4), RMB orbits, wheel zooms, never below y = 2. **C** (`DemoRoot.BoatToggleKey`) toggles boat mode: the free-fly camera is disabled and the chase camera made current; `StartInBoat` starts there. The ocean follows whichever camera is current.
+- **Water props** (`demo/props/WaterProps.cs`, created by `DemoRoot`): off the south coast a sea stack (faceted sphere, waterline radius 7 m, top 15 m, skirt 6 m) at (120, −345), a boulder 1.5 m under the surface (skirt 3 m) at (104, −330), and a 12 × 2.4 m pontoon (floating box, draft 0.5 m, heaves on `SampleWater`) on four 0.15 m piles at (166, −326), each registered with `Ocean.AddBody` (10.1). The boat is a `WaterBody.Hull` (30 × 11 m, draft 2.5 m), stationary while it is not steered and slower than 0.3 m/s, so a moored boat gets a waterline and lee.
 - **`FreeFlyCamera`:** WASD, Q/E down/up, hold RMB to look (start it in `_UnhandledInput` so UI clicks never start it, release in `_Input`), Shift ×5, wheel ×1.2 speed. Default pose = `overview` (0, 52, −40, pitch −33°, yaw −24°: island and glint in view, breeze crests in front; mind the row-major basis), `fov` 70, `far` 8000.
 
 ## 12. Parameters and the generic UI (milestone M4) **(new)**
@@ -539,6 +575,9 @@ Everything here lives in `dev/` and runs from `dev/dev_main.tscn`, which instanc
 | `--set=<param id>=<value>` | sets any parameter by id (e.g. `--set=foam.bias=0.62`, `--set=surface.foam_veil=0.4`) |
 | `--capture=<pose,…>` | for each named pose (section 14): place the camera, **restart the simulation** (so the same pose gives the same waves in every run, which A/B comparisons need), let it settle 3 s (`--settle=<s>`), save `.scratch/captures/<tag>_<pose>.png` from the viewport, then a 2-column contact sheet (`Image.BlitRect`), then quit; `--tag=` names the run; pose `current` keeps the `--cam` pose |
 | `--panels` | shows the parameter panels unfolded, for UI captures |
+| `--hide-panels` | hides the parameter panels, for clean scene captures |
+| `--no-bodies` | unregisters every water body (the props stay, with only depth-buffer contact foam): the A/B for 10.1 |
+| `--shore=x,z[;x,z…]` | prints the shore sample (depth, distance, open, shelter) at world points, bodies folded in; with any mode |
 | `--burst=<n>` | at the current pose, save n consecutive frames (crop 640×360 from the centre) and a strip image; the flicker check, takes about a second |
 | `--bench=<seconds>` | average and 1 %-low frame time after a 3 s warm-up at the hero pose (or `--cam`); prints one line, quits |
 | `--selftest` | runs `GpuChecks` (section 15.2), prints PASS/FAIL per check, exits 0/1 |
@@ -563,6 +602,12 @@ Look at the full-resolution captures, not only the contact sheet: a downscaled s
 | close | 0,4,0,−30,20 | lace, no wire mesh |
 | close_down | 0,7,0,−62,40 | foam texture, relief |
 | shore | 120,14,−300,−12,−20 | shore foam and shallow water at the island |
+| coast | 150,120,−230,−31.5,−12.8 | the south coast from above: surf in broken sets, no rings |
+| windward | 610,30,−600,−35,90 | the east coast, facing the swell: most surf |
+| lee_coast | −175,30,−700,−35,−90 | the west coast, in the lee: little surf |
+| beach | 185,5,−345,−14,0 | low over the south beach: fronts arriving, swash |
+| props | 150,25,−290,−28,12.5 | sea stack (waterline, foot, lee), pontoon and piles (collars); A/B with `--no-bodies` |
+| moored | 85,18,−115,−22.7,35.5 | the boat lying still: capsule waterline, waves still under it |
 | overview | 0,52,−40,−33,−24 | the demo's default camera (breeze): crest foam, far waves calm and stable |
 
 Yaw 0 faces the sun on every panorama preset. Bursts at `close_down` and `hero`: foam drifts with the water, caps age into trails, nothing pops between frames. Compare the hero capture against `docs/reference.webp`.
@@ -581,6 +626,7 @@ Yaw 0 faces the sun on every panorama preset. Bursts at `close_down` and `hero`:
 - **Push constants:** parse the `push_constant` block of every `.glsl` under `ocean/` (std430: scalars 4, vec2 8 aligned 8, vec4 16 aligned 16), assert sizes and offsets match the C# layouts field by field and are multiples of 16. This catches the most common silent bug.
 - **Config:** JSON round-trip of `OceanConfig` (incl. colours and enums, invariant culture under `de-DE`); a file missing fields keeps defaults; the config diff reports exactly the changed cascade spectra.
 - **Parameters:** setting a value raises `Changed` once and not for the same value; `OnRelease` parameters apply only on commit.
+- **Bodies** (`BodyTests`): circle, yawed box and capsule distances; nothing folds without stationary bodies; a grounded rock is land with a sloping foot; a floating hull keeps the depth under it (aground it is land); a submerged reef is shallow open water; pages equal the terrain beyond the blend and are continuous across page borders; the lee is downwind only and the calm (GPU formula and CPU sampler) takes it; crests travel against the wind vector.
 
 ### 15.2 GPU checks (`dev/GpuChecks.cs`, via `--selftest`)
 - GPU h0 at 512² equals `InitialSpectrum` at 64 random texels (relative 1e-3).

@@ -59,6 +59,7 @@ foreach (var set in ocean.Parameters)          // live knobs for your own UI or 
 | `Parameters` | `ParameterSet`s: Ocean, Cascade 0–2, Foam field, Spray, Water sampling, Surface (built from the shader's uniform groups) |
 | `ConfigChanged` | raised after every `Apply` |
 | `SetSeaFloor(floor)` / `ClearSeaFloor()` / `SeaFloor` | the ground under the water (see [Shores and terrain](#shores-and-terrain)); without one the sea is deep everywhere |
+| `AddBody(body)` / `RemoveBody(body)` / `ClearBodies()` / `UpdateBodies()` / `Bodies` / `BodyLayer` | things standing or floating in the water: rocks, posts, pontoons, hulls (see [Bodies in the water](#bodies-in-the-water)) |
 | `SampleWater(worldPos)` / `SampleWater(positions, results)` | the water over a world xz: `Height` (world y), `Normal`, `Velocity` of the surface water (see [Sampling the water](#sampling-the-water)) |
 | `WaterTime` | the waves' clock: the swell cascade's simulation time (s), restarts with the ocean |
 | `SampledSwellWaves` / `SampledChopWaves` | components the CPU sampler sums (256 / 32); also in the panel's "Water sampling" set, with how much of each cascade's energy they capture and the last query's cost |
@@ -87,13 +88,61 @@ It is uploaded as one small texture and changes how the water behaves over it, a
 | | |
 |---|---|
 | **Quiet water** | each cascade's waves fade out as the water gets shallow: swell first (`shallow_swell_depth` 16 m), then chop (5 m), then ripples (0.6 m). Over land there are no waves, so water never washes through beaches. Lakes keep `lake_waves` (15 %) of every cascade. The deep-water foam field is calmed with the chop. |
-| **Shore foam** | a band `shore_band_width` (4 m) wide along the coast, in metres from the shoreline (independent of the camera). Foam against things that are not in the heightmap (hulls, rocks) still comes from the depth buffer (`shore_foam_distance`). |
-| **Surf** | lines travelling down the distance field towards the beach (`surf_spacing` 16 m, `surf_speed` 2.2 m/s) in the outer `surf_zone` (45 m), soft-edged and broken up along the coast; they run through the foam lace like any other foam. |
-| **Breaking** | foam where the water is shallower than `breaking_ratio` (1.3) × the local wave height: sandbars and reefs break before the beach. |
+| **Shore foam** | a band `shore_band_width` (4 m) wide along the coast and around every [body](#bodies-in-the-water), in metres from the shoreline (independent of the camera). Anything that is neither terrain nor a registered body still gets the thin depth-buffer contact foam (`shore_foam_distance`). |
+| **Surf** | wave fronts travelling down the distance field towards the beach (`surf_spacing` 16 m, `surf_speed` 2.2 m/s), fading in over the inner part of `surf_zone` (30 m). They arrive in broken sets, not rings: each front lights only some stretches of coast (`surf_gaps` 0.35, stretches of ~`surf_patch` 40 m), different ones from front to front, every few fronts a stronger one, and coasts turned away from the swell keep less (`surf_windward` 0.6; the lee of a body none). Strength `surf_strength` (1.0). They run through the foam lace like any other foam. |
+| **Swash** | when a front reaches the waterline the water runs up the beach and drains back until the next one: the surface within `swash_width` (6 m) of the waterline lifts by up to `swash_height` (0.3 m), so the wet edge climbs a gentle beach by metres and a steep one by less, with fresh foam in the uprush (`swash_foam`). Only where the water at the waterline is shallow: beaches and grounded bodies (a rock's foot), not hulls or sheer walls. The CPU water sampler leaves it out. |
+| **Breaking** | foam where the water is shallower than `breaking_ratio` (1.3) × the local wave height: sandbars, reefs and submerged bodies break before the beach. |
 | **Colour** | a turquoise lagoon tint over shallow ground (`lagoon_color`, `lagoon_depth` 6 m) and stirred-up sand in the surf zone (`sediment_color`). |
 
 Outside the sea floor's rectangle, and with no sea floor at all, all of this is off and the ocean looks exactly as it
-did. The demo's island pushes its heightmap on every (re)generation (`DemoRoot`).
+did. The demo's island pushes its heightmap on every (re)generation (`DemoRoot`). The swell direction (for windward
+surf and lee) is the way cascade 0's waves travel: against its `windDirection` vector, since the spectrum puts its
+energy at wave vectors along the wind and each component is `cos(k·p + ωt)`.
+
+## Bodies in the water
+
+Rocks, posts, pontoons and hulls register a footprint with the ocean, and every water effect reads that one list.
+Stationary bodies fold into the shore data the same way islands do, so a sea stack gets the islands' waterline foam,
+calm lee, small breaks on its sloping foot and swash; a post gets a small foam collar; a moored hull a waterline and a
+lee while the waves keep running under it.
+
+```csharp
+using Ocean.Core.Bodies;
+
+// A sea stack 14 m across, 15 m tall, rock debris sloping out 6 m around its foot.
+var rock = WaterBody.Circle(new System.Numerics.Vector2(120, -345), radius: 7f, top: 15f);
+rock.Skirt = 6f;
+ocean.AddBody(rock);
+ocean.AddBody(WaterBody.Circle(postXz, 0.15f, top: 2f));                                   // a pile
+ocean.AddBody(WaterBody.Box(pontoonXz, headingRad, length: 12f, beam: 2.4f, top: 0.4f));   // a pier block
+var hull = WaterBody.Hull(boatXz, headingRad, length: 30f, beam: 11f, draft: 2.5f);         // capsule, waves run under
+ocean.AddBody(hull);
+
+hull.Position = newXz;      // bodies are plain objects: change them, then
+ocean.UpdateBodies();       // refold (next frame, only if a stationary body really changed)
+hull.Stationary = false;    // under way: left out of the shore data, still in the list (velocity for later effects)
+```
+
+A `WaterBody` is a rounded rectangle at the waterline in world xz (`Position`, `Heading` as Godot yaw, `Length`,
+`Beam`, `Rounding`: a circle when length = beam = 2 × rounding, a capsule at rounding = beam / 2), plus `Top` (height
+above sea level; negative is a submerged reef the waves break over), `Draft` (∞: stands on the sea bed and is ground
+to the water; finite: where the water is deeper, waves run under it), `Skirt` (sea bed sloping up to its foot over that
+many metres), `Reach` (how far its shore effects reach; default a third of its shorter side plus the skirt,
+0.6–24 m), `Lee` / `LeeLength` (shelter strength 0.6 and length per metre of the width it shows the waves, 3),
+`Velocity` and `Stationary`.
+
+How it folds (`Ocean.Core.Shore.BodyLayer`, pure C#): around the stationary bodies, a sparse set of 16 m pages with
+0.25 m samples holds the sea floor with the bodies merged in: the shallowest depth, the nearest waterline (each body's
+signed distance, handed back to the terrain's between its reach and 1.5 × reach + 1 m, so pages join the coarse texture
+without a seam), open sea, and a fourth channel, the lee shelter (a shadow downwind that narrows as the waves bend back
+into it; it calms swell fully, chop by 80 %, ripples by 30 %). The shader looks a page up first (one `texelFetch` in a
+small index texture) and falls back to the coarse sea floor, so every shore effect above, and the CPU water sampler,
+treat islands and bodies alike. Updating bodies rebuilds only the pages (milliseconds), never the terrain's distance
+transform; changing the swell direction refolds the lee. Without bodies the index is off and nothing changes. Measured
+cost of the whole shore pass with bodies, new surf and swash: within ±0.03 ms of before at 1080p (`--bench`).
+
+The demo registers a sea stack, a submerged boulder, a pontoon on four piles off the island's south coast
+(`demo/props/WaterProps.cs`) and its boat, stationary (moored) while it lies still (`DemoRoot`).
 
 ## Sampling the water
 
@@ -101,7 +150,7 @@ did. The demo's island pushes its heightmap on every (re)generation (`DemoRoot`)
 GPU readback. It re-evaluates the strongest components of the swell and chop spectra (same seed, phases and conventions
 as the GPU, `ocean/core/Sampling/WaveSampler.cs`) as a sum of waves, finds the undisplaced point the choppy displacement
 moves onto the asked xz (two Newton steps), and calms each cascade in shallow water exactly as the shader does
-(`shore_calm` on the sea floor). Time is the cascades' own simulation time, so it matches the surface on screen.
+(`shore_calm` on the sea floor and the bodies' lee). Time is the cascades' own simulation time, so it matches the surface on screen.
 
 ```csharp
 var w = ocean.SampleWater(boat.GlobalPosition);   // w.Height, w.Normal, w.Velocity

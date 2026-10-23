@@ -26,7 +26,10 @@ Not shipped: `dotnet build -p:Ship=true` excludes this folder, and nothing outsi
 | `--selftest` | GPU checks (incl. the water sampler against read-back swell and chop) + foam targets, PASS/FAIL per check, exit code 0/1 |
 | `--foam-stats` | foam field numbers at 60 Hz and 120 Hz from the hero pose |
 | `--panels` | shows both parameter panels unfolded (for UI captures) |
+| `--shore=x,z[;x,z...]` | prints what the shore shader reads at world points (depth, distance, open, shelter), bodies folded in; combine with any mode |
+| `--no-bodies` | unregisters every water body: the props stay but get only the depth-buffer contact foam (A/B) |
+| `--hide-panels` | hides both parameter panels (clean scene captures) |
 | `--prepare-assets` | one-off asset processing from `.scratch/downloads/` (see the asset READMEs) |
 
-Poses: hero, high_sun, high_side, low_sun, mid_close, low_away, top_down, close, close_down, shore, overview (the demo's default camera) (`Captures.cs`). `--bench` measures at hero unless `--cam` is given; `--selftest` and `--foam-stats` measure the foam targets on the calm preset unless `--preset` is given (the demo starts on breeze).
+Poses: hero, high_sun, high_side, low_sun, mid_close, low_away, top_down, close, close_down, shore, overview (the demo's default camera), coast, windward, lee_coast, beach, props, moored (`Captures.cs`). `--bench` measures at hero unless `--cam` is given; `--selftest` and `--foam-stats` measure the foam targets on the calm preset unless `--preset` is given (the demo starts on breeze).
 Look at the full-resolution captures, not only the contact sheet.

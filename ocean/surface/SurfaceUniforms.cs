@@ -19,6 +19,11 @@ internal static class SurfaceUniforms
     public const string SeaFloor = "sea_floor";
     public const string SeaFloorRect = "sea_floor_rect";
     public const string ShoreTime = "shore_time";
+    public const string ShoreWaveDir = "shore_wave_dir";
+    public const string BodyPages = "body_pages";
+    public const string BodyIndex = "body_index";
+    public const string BodyRect = "body_rect";
+    public const string BodySamples = "body_samples";
 
     // Spray only.
     public const string CameraXz = "camera_xz";
@@ -29,6 +34,7 @@ internal static class SurfaceUniforms
     public static readonly string[] ShoreShared =
     {
         "shallow_swell_depth", "shallow_chop_depth", "shallow_ripple_depth", "lake_waves",
-        "surf_zone", "surf_spacing", "surf_speed", "surf_sharpness", "breaking_ratio",
+        "surf_zone", "surf_spacing", "surf_speed", "surf_sharpness", "surf_gaps", "surf_patch", "surf_windward",
+        "swash_height", "swash_width", "breaking_ratio",
     };
 }

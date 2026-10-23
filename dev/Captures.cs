@@ -22,6 +22,12 @@ internal static class Captures
         ["close_down"] = new[] { 0f, 7, 0, -62, 40 },
         ["shore"] = new[] { 120f, 14, -300, -12, -20 },
         ["overview"] = new[] { 0f, 52, -40, -33, -24 }, // the demo's default camera
+        ["coast"] = new[] { 150f, 120, -230, -31.5f, -12.8f }, // the south coast from above: surf and swash
+        ["windward"] = new[] { 610f, 30, -600, -35, 90 }, // the east coast, facing the swell
+        ["lee_coast"] = new[] { -175f, 30, -700, -35, -90 }, // the west coast, in the lee
+        ["beach"] = new[] { 185f, 5, -345, -14, 0 }, // low over the south beach: surf arriving, swash
+        ["props"] = new[] { 150f, 25, -290, -28, 12.5f }, // sea stack, submerged boulder, pontoon on piles
+        ["moored"] = new[] { 85f, 18, -115, -22.7f, 35.5f }, // the demo boat lying still
     };
 
     public static void Place(Camera3D camera, float[] pose)

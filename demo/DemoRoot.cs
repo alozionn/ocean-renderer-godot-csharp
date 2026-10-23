@@ -7,6 +7,7 @@ using OceanDemo.Props;
 using OceanDemo.UI;
 using OceanNode = Ocean.Ocean;
 using SeaFloor = Ocean.Core.Shore.SeaFloor;
+using WaterBody = Ocean.Core.Bodies.WaterBody;
 
 namespace OceanDemo;
 
@@ -60,9 +61,18 @@ public partial class DemoRoot : Node
             if (island.WorldHeights.Length > 0) PushSeaFloor();
         }
 
+        // Props in the water and the boat are bodies: the ocean gives them waterlines, lee, surf and swash.
+        if (Ocean != null)
+        {
+            var props = new WaterProps { Name = "WaterProps", Water = Ocean };
+            AddChild(props);
+            foreach (var body in props.Bodies) Ocean.AddBody(body);
+        }
+
         _godCamera = GetNodeOrNull<Camera3D>(CameraPath ?? new NodePath());
         _boat = GetNodeOrNull<Boat.Boat>(BoatPath ?? new NodePath());
         if (_boat != null) _boat.Water = Ocean;
+        if (_boat != null && Ocean != null) Ocean.AddBody(_boatBody);
         _boatCamera = GetNodeOrNull<Boat.BoatCamera>(BoatCameraPath ?? new NodePath());
         if (StartInBoat) SetBoatMode(true);
     }
@@ -70,6 +80,33 @@ public partial class DemoRoot : Node
     Camera3D _godCamera;
     Boat.Boat _boat;
     Boat.BoatCamera _boatCamera;
+    // The Kenney hull at x2.5: about 30 x 11 m at the waterline, 2.5 m draft.
+    readonly WaterBody _boatBody = MooringHull();
+    Vector3 _boatLast;
+
+    static WaterBody MooringHull()
+    {
+        var hull = WaterBody.Hull(default, 0f, 30f, 11f, 2.5f);
+        hull.Stationary = false; // placed on the first frame
+        return hull;
+    }
+
+    /// <summary>Keeps the boat's body on the boat: stationary (moored, part of the shore data) while it lies still.</summary>
+    public override void _Process(double delta)
+    {
+        if (_boat == null || Ocean == null || delta <= 0) return;
+        var p = _boat.GlobalPosition;
+        var v = (p - _boatLast) / (float)delta;
+        _boatLast = p;
+        _boatBody.Velocity = new System.Numerics.Vector2(v.X, v.Z);
+        bool moored = !_boat.Controlled && Mathf.Abs(_boat.Speed) < 0.3f;
+        if (moored && _boatBody.Stationary) return;
+        // Bow at local −z: the body's length axis is the boat's yaw plus a quarter turn.
+        _boatBody.Position = new System.Numerics.Vector2(p.X, p.Z);
+        _boatBody.Heading = _boat.GlobalRotation.Y + Mathf.Pi * 0.5f;
+        _boatBody.Stationary = moored;
+        Ocean.UpdateBodies();
+    }
 
     public override void _UnhandledInput(InputEvent e)
     {

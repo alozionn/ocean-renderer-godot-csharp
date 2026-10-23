@@ -77,6 +77,7 @@ public partial class Ocean : Node3D
             1f / (floor.Width * floor.CellSize), 1f / (floor.Depth * floor.CellSize));
         SetShared(SurfaceUniforms.SeaFloor, ImageTexture.CreateFromImage(image));
         SetShared(SurfaceUniforms.SeaFloorRect, rect);
+        _bodiesDirty = true;
     }
 
     /// <summary>Back to open deep sea everywhere.</summary>
@@ -84,6 +85,7 @@ public partial class Ocean : Node3D
     {
         _seaFloor = null;
         SetShared(SurfaceUniforms.SeaFloorRect, Vector4.Zero);
+        _bodiesDirty = true;
     }
 
     /// <summary>Sets a uniform both the surface and the spray read.</summary>
@@ -180,6 +182,7 @@ public partial class Ocean : Node3D
             }
         }
         if (_cascades.Length > 0) SetShared(SurfaceUniforms.ShoreTime, (float)_cascades[0].Time);
+        FoldBodies();
         _sprayMaterial?.SetShaderParameter(SurfaceUniforms.SeaLevel, GlobalPosition.Y);
     }
 
@@ -331,6 +334,8 @@ public partial class Ocean : Node3D
         _material.SetShaderParameter(SurfaceUniforms.StreakAngle, Mathf.DegToRad(_config.Cascades[0].WindDirection + _config.Foam.StreakAngleOffset));
         float wind = Mathf.DegToRad(_config.Cascades[0].WindDirection);
         _sprayMaterial?.SetShaderParameter(SurfaceUniforms.WindDir, new Vector2(Mathf.Cos(wind), Mathf.Sin(wind)));
+        SetShared(SurfaceUniforms.ShoreWaveDir, WaveDirection());
+        _bodiesDirty = true; // the lee follows the swell
     }
 
     /// <summary>Writes the named surface overrides to the material; names without an override go back to the shader default.</summary>

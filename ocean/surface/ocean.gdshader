@@ -111,11 +111,21 @@ uniform float shallow_ripple_depth : hint_range(0.05, 5.0, 0.05) = 0.6;
 uniform float lake_waves : hint_range(0.0, 1.0, 0.01) = 0.15;
 uniform float shore_band_width : hint_range(0.0, 30.0, 0.1) = 4.0;
 uniform float shore_band_strength : hint_range(0.0, 2.0, 0.01) = 0.8;
-uniform float surf_zone : hint_range(0.0, 200.0, 1.0) = 45.0;
+uniform float surf_zone : hint_range(0.0, 200.0, 1.0) = 30.0;
 uniform float surf_spacing : hint_range(2.0, 60.0, 0.5) = 16.0;
 uniform float surf_speed : hint_range(0.0, 10.0, 0.05) = 2.2;
 uniform float surf_sharpness : hint_range(1.0, 24.0, 0.5) = 7.0;
-uniform float surf_strength : hint_range(0.0, 2.0, 0.01) = 0.7;
+uniform float surf_strength : hint_range(0.0, 2.0, 0.01) = 1.0;
+// Each front lights only stretches of coast where along-coast noise beats surf_gaps; stretches are ~surf_patch metres.
+uniform float surf_gaps : hint_range(0.0, 1.0, 0.01) = 0.35;
+uniform float surf_patch : hint_range(5.0, 200.0, 1.0) = 40.0;
+// How much the coast facing away from the swell loses its surf (0: all coasts alike).
+uniform float surf_windward : hint_range(0.0, 1.0, 0.01) = 0.6;
+// Run-up after each front: the water near the waterline lifts by up to swash_height, tapering over swash_width
+// seaward, and the fresh uprush is foamy.
+uniform float swash_height : hint_range(0.0, 2.0, 0.01) = 0.3;
+uniform float swash_width : hint_range(0.5, 30.0, 0.5) = 6.0;
+uniform float swash_foam : hint_range(0.0, 2.0, 0.01) = 0.7;
 uniform float breaking_ratio : hint_range(0.0, 3.0, 0.01) = 1.3;
 uniform float breaking_strength : hint_range(0.0, 2.0, 0.01) = 0.6;
 uniform vec3 lagoon_color : source_color = vec3(0.04, 0.55, 0.55);
@@ -150,9 +160,11 @@ void vertex() {
 	v_grid = VERTEX.xz;
 	vec2 local = VERTEX.xz - MODEL_MATRIX[3].xz; // offset from the (snapped) mesh centre
 	float spacing = max(mesh_spacing, max(abs(local.x), abs(local.y)) * mesh_growth);
-	vec3 calm = shore_calm(shore_at(v_grid));
+	ShoreSample sea = shore_at(v_grid);
+	vec3 calm = shore_calm(sea);
 	vec3 d = displacement_at(v_grid, length(VERTEX.xz - CAMERA_POSITION_WORLD.xz), spacing, calm);
 	VERTEX += d;
+	VERTEX.y += swash(sea, v_grid, shore_facing(sea, v_grid)).x * swash_height;
 	v_height = d.y;
 }
 
@@ -199,9 +211,11 @@ void fragment() {
 	float shore = 1.0 - smoothstep(0.0, shore_foam_distance, shore_depth);
 	float wet = step(0.0, sea.depth);
 	float band = (1.0 - smoothstep(0.0, shore_band_width, abs(sea.distance))) * wet * shore_band_strength;
-	float surf = surf_lines(sea, v_grid) * surf_strength;
+	float facing = shore_facing(sea, v_grid);
+	float surf = surf_lines(sea, v_grid, facing) * surf_strength;
 	float breaking = smoothstep(0.15, 0.6, breaking_ratio * 2.0 * max(v_height, 0.0) - sea.depth) * wet * sea.open * breaking_strength;
-	shore = max(max(shore, band), max(surf, breaking));
+	float uprush = swash(sea, v_grid, facing).y * swash_foam * (1.0 - smoothstep(0.0, 0.5 * swash_width, sea.distance));
+	shore = max(max(max(shore, band), max(surf, breaking)), uprush);
 	// The foam field comes from deep-water waves: calm it with the chop.
 	FoamSample foam = foam_composite(v_grid, grid_dx, grid_dy, dist, shore, wave_calm.y, b > 0.0);
 	float milk = smoothstep(0.0, milk_range, foam.density) * milk_strength;

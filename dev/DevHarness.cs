@@ -42,7 +42,7 @@ public partial class DevHarness : Node
         _demo = Find<DemoRoot>(GetTree().Root);
         if (_args.TryGetValue("sky", out var sky)) _demo.Sky.Apply(sky);
         if (_args.TryGetValue("preset", out var preset))
-            _ocean.LoadConfig(preset.Contains('/') ? preset : $"res://demo/presets/{preset.TrimSuffix(".json")}.json");
+            _ocean.LoadConfig(preset.Contains('/') ? preset : $"res://demo/presets/ocean_{preset.TrimPrefix("ocean_").TrimSuffix(".json")}.json");
         if (_args.TryGetValue("set", out var sets))
             foreach (var s in sets.Split(';')) SetParameter(s);
         _boat = Find<Boat>(GetTree().Root);
@@ -53,6 +53,8 @@ public partial class DevHarness : Node
             _boat.Place(new Vector3(b[0], _ocean.GlobalPosition.Y, b[1]), b.Length > 2 ? b[2] : 0f);
         }
         if (_args.ContainsKey("panels")) ShowPanels(GetTree().Root);
+        if (_args.ContainsKey("hide-panels")) HidePanels(GetTree().Root);
+        if (_args.ContainsKey("no-bodies")) _ocean.ClearBodies(); // props stay, without their shore effects (A/B)
         _ = RunAsync();
     }
 
@@ -93,6 +95,13 @@ public partial class DevHarness : Node
         foreach (var c in n.GetChildren()) ShowPanels(c);
     }
 
+    /// <summary>--hide-panels: hides every parameter panel, for clean scene captures.</summary>
+    static void HidePanels(Node n)
+    {
+        if (n is OceanDemo.UI.ParameterPanel panel) panel.Visible = false;
+        foreach (var c in n.GetChildren()) HidePanels(c);
+    }
+
     static float[] ParsePose(string s) => s.Split(',').Select(v => float.Parse(v, System.Globalization.CultureInfo.InvariantCulture)).ToArray();
 
     async Task RunAsync()
@@ -101,6 +110,11 @@ public partial class DevHarness : Node
         await ToSignal(GetTree(), SceneTree.SignalName.ProcessFrame);
         try
         {
+            if (_args.TryGetValue("shore", out var probes))
+            {
+                await ToSignal(GetTree(), SceneTree.SignalName.ProcessFrame); // bodies fold in the ocean's next _Process
+                PrintShore(probes);
+            }
             if (_args.ContainsKey("selftest")) exit = GpuChecks.Run(_ocean.Pipelines) & GpuChecks.Report("water sampler vs GPU swell", GpuChecks.WaterSampler(_ocean)) & await FoamTargets() ? 0 : 1;
             else if (_args.ContainsKey("foam-stats")) await FoamTargets();
             else if (_args.TryGetValue("capture", out var poses)) await Capture(poses.Split(','));
@@ -116,7 +130,18 @@ public partial class DevHarness : Node
         GetTree().Quit(exit);
     }
 
-    string Tag => _args.TryGetValue("tag", out var t) && t.Length > 0 ? t : "cap";
+    /// <summary>--shore=x,z[;x,z...]: what the shore shader reads at world points (sea floor with the bodies folded in).</summary>
+    void PrintShore(string probes)
+    {
+        foreach (var probe in probes.Split(';'))
+        {
+            var v = ParsePose(probe);
+            var s = Ocean.Core.Shore.BodyLayer.Lookup(_ocean.SeaFloor, _ocean.BodyLayer, new(v[0], v[1]));
+            GD.Print(FormattableString.Invariant($"shore at ({v[0]}, {v[1]}): depth {s.Depth:F2} m, distance {s.Distance:F2} m, open {s.Open:F2}, shelter {s.Shelter:F2}"));
+        }
+    }
+
+    string Tag =>_args.TryGetValue("tag", out var t) && t.Length > 0 ? t : "cap";
 
     async Task Wait(double seconds)
     {
@@ -132,11 +157,11 @@ public partial class DevHarness : Node
     {
         double interval = _args.TryGetValue("interval", out var iv) ? double.Parse(iv, System.Globalization.CultureInfo.InvariantCulture) : 0;
         await Wait(3.0);
-        if (_args.ContainsKey("boat") && _ocean.SeaFloor != null)
+        if (_args.ContainsKey("boat"))
         {
             var p = _boat.GlobalPosition;
-            var shore = Ocean.Core.Sampling.ShoreCalm.Lookup(_ocean.SeaFloor, new(p.X, p.Z));
-            GD.Print(FormattableString.Invariant($"boat water depth {shore.Depth:F1} m, open {shore.Open:F2}, swell calm {_ocean.WaterSampler.Calm.Factor(shore, 0):F2}, chop calm {_ocean.WaterSampler.Calm.Factor(shore, 1):F2}"));
+            var shore = Ocean.Core.Shore.BodyLayer.Lookup(_ocean.SeaFloor, _ocean.BodyLayer, new(p.X, p.Z));
+            GD.Print(FormattableString.Invariant($"boat water depth {shore.Depth:F1} m, open {shore.Open:F2}, shelter {shore.Shelter:F2}, swell calm {_ocean.WaterSampler.Calm.Factor(shore, 0):F2}, chop calm {_ocean.WaterSampler.Calm.Factor(shore, 1):F2}"));
         }
         var frames = new List<Image>();
         var drift = new List<System.Numerics.Vector3>();
@@ -176,6 +201,7 @@ public partial class DevHarness : Node
         var surface = new GpuSurface(_ocean.Pipelines.Rd, _ocean.Cascades.ToArray(), cfg.Select(c => c.PatchSize).ToArray())
         {
             Floor = _ocean.SeaFloor,
+            Bodies = _ocean.BodyLayer,
             Calm = _ocean.WaterSampler.Calm,
         };
         float level = _ocean.GlobalPosition.Y;

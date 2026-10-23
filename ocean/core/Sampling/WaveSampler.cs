@@ -56,6 +56,8 @@ public sealed class WaveSampler
     public int Iterations { get; set; } = 2;
     /// <summary>The ground under the water; null: deep open sea everywhere.</summary>
     public SeaFloor? Floor { get; set; }
+    /// <summary>Stationary bodies folded over the floor (their lee calms the waves); null: none.</summary>
+    public BodyLayer? Bodies { get; set; }
     /// <summary>The shader's shallow-water calming (shore.gdshaderinc shore_calm).</summary>
     public ShoreCalm Calm { get; set; } = ShoreCalm.Default;
 
@@ -263,7 +265,7 @@ public sealed class WaveSampler
 
     void CalmAt(Vector2 p, Span<float> calm)
     {
-        var shore = Floor == null ? ShoreCalm.Deep : ShoreCalm.Lookup(Floor, p);
+        var shore = BodyLayer.Lookup(Floor, Bodies, p);
         for (int c = 0; c < calm.Length; c++) calm[c] = Calm.Factor(shore, c);
     }
 

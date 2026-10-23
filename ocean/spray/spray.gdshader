@@ -30,10 +30,15 @@ uniform float shallow_swell_depth = 16.0;
 uniform float shallow_chop_depth = 5.0;
 uniform float shallow_ripple_depth = 0.6;
 uniform float lake_waves = 0.15;
-uniform float surf_zone = 45.0;
+uniform float surf_zone = 30.0;
 uniform float surf_spacing = 16.0;
 uniform float surf_speed = 2.2;
 uniform float surf_sharpness = 7.0;
+uniform float surf_gaps = 0.35;
+uniform float surf_patch = 40.0;
+uniform float surf_windward = 0.6;
+uniform float swash_height = 0.3;
+uniform float swash_width = 6.0;
 uniform float breaking_ratio = 1.3;
 
 #include "../surface/include/shore.gdshaderinc"
@@ -70,7 +75,7 @@ void start() {
 	float fresh = all(greaterThanEqual(fuv, vec2(0.0))) && all(lessThanEqual(fuv, vec2(1.0))) ? textureLod(foam_near, fuv, 0.0).g * calm.y : 0.0;
 	float crest = smoothstep(spray_threshold, spray_threshold + 0.4, fresh) * step(0.0, d.y);
 	float wet = step(0.0, sea.depth);
-	float surf = pow(surf_lines(sea, xz), 2.0) * spray_shore;
+	float surf = pow(surf_lines(sea, xz, shore_facing(sea, xz)), 2.0) * spray_shore;
 	float breaking = smoothstep(0.15, 0.6, breaking_ratio * 2.0 * max(d.y, 0.0) - sea.depth) * wet * sea.open * spray_shore;
 	float p = clamp(max(crest, max(surf, breaking)), 0.0, 1.0) * wet;
 
