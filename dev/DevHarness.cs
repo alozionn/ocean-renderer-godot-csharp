@@ -4,6 +4,7 @@ using System.Linq;
 using System.Threading.Tasks;
 using Godot;
 using OceanDemo;
+using OceanDemo.Boat;
 using Ocean.Core.Parameters;
 using OceanNode = Ocean.Ocean;
 
@@ -11,7 +12,7 @@ namespace OceanDev;
 
 /// <summary>
 /// Entry point of dev/dev_main.tscn. Parses the user args after `--` and runs the requested tool:
-/// --cam, --sky, --preset, --set, --capture, --tag, --burst, --bench, --selftest, --foam-stats, --prepare-assets.
+/// --cam, --sky, --preset, --set, --boat, --no-float, --capture, --tag, --burst, --interval, --bench, --selftest, --foam-stats, --prepare-assets.
 /// </summary>
 public partial class DevHarness : Node
 {
@@ -19,6 +20,7 @@ public partial class DevHarness : Node
     OceanNode _ocean;
     DemoRoot _demo;
     Camera3D _camera;
+    Boat _boat;
 
     public override void _Ready()
     {
@@ -43,6 +45,13 @@ public partial class DevHarness : Node
             _ocean.LoadConfig(preset.Contains('/') ? preset : $"res://demo/presets/{preset.TrimSuffix(".json")}.json");
         if (_args.TryGetValue("set", out var sets))
             foreach (var s in sets.Split(';')) SetParameter(s);
+        _boat = Find<Boat>(GetTree().Root);
+        if (_args.ContainsKey("no-float")) _boat.Water = null; // bench A/B: the boat without the water sampler
+        if (_args.TryGetValue("boat", out var boat))
+        {
+            var b = ParsePose(boat);
+            _boat.Place(new Vector3(b[0], _ocean.GlobalPosition.Y, b[1]), b.Length > 2 ? b[2] : 0f);
+        }
         if (_args.ContainsKey("panels")) ShowPanels(GetTree().Root);
         _ = RunAsync();
     }
@@ -92,7 +101,7 @@ public partial class DevHarness : Node
         await ToSignal(GetTree(), SceneTree.SignalName.ProcessFrame);
         try
         {
-            if (_args.ContainsKey("selftest")) exit = GpuChecks.Run(_ocean.Pipelines) & await FoamTargets() ? 0 : 1;
+            if (_args.ContainsKey("selftest")) exit = GpuChecks.Run(_ocean.Pipelines) & GpuChecks.Report("water sampler vs GPU swell", GpuChecks.WaterSampler(_ocean)) & await FoamTargets() ? 0 : 1;
             else if (_args.ContainsKey("foam-stats")) await FoamTargets();
             else if (_args.TryGetValue("capture", out var poses)) await Capture(poses.Split(','));
             else if (_args.TryGetValue("burst", out var n)) await Burst(int.Parse(n));
@@ -115,18 +124,65 @@ public partial class DevHarness : Node
         while (Time.GetTicksMsec() / 1000.0 < end) await ToSignal(GetTree(), SceneTree.SignalName.ProcessFrame);
     }
 
-    /// <summary>n consecutive frames, centre-cropped to 640x360, plus a strip: the flicker check.</summary>
+    /// <summary>
+    /// n consecutive frames (or one every --interval seconds), centre-cropped to 640x360, plus a strip: the flicker check.
+    /// With --boat, also the boat's pose against the water per frame.
+    /// </summary>
     async Task Burst(int n)
     {
+        double interval = _args.TryGetValue("interval", out var iv) ? double.Parse(iv, System.Globalization.CultureInfo.InvariantCulture) : 0;
         await Wait(3.0);
+        if (_args.ContainsKey("boat") && _ocean.SeaFloor != null)
+        {
+            var p = _boat.GlobalPosition;
+            var shore = Ocean.Core.Sampling.ShoreCalm.Lookup(_ocean.SeaFloor, new(p.X, p.Z));
+            GD.Print(FormattableString.Invariant($"boat water depth {shore.Depth:F1} m, open {shore.Open:F2}, swell calm {_ocean.WaterSampler.Calm.Factor(shore, 0):F2}, chop calm {_ocean.WaterSampler.Calm.Factor(shore, 1):F2}"));
+        }
         var frames = new List<Image>();
+        var drift = new List<System.Numerics.Vector3>();
         for (int i = 0; i < n; i++)
         {
+            if (i > 0 && interval > 0) await Wait(interval);
             var img = await Captures.Grab(this);
             frames.Add(img.GetRegion(new Rect2I((img.GetWidth() - 640) / 2, (img.GetHeight() - 360) / 2, 640, 360)));
+            if (!_args.ContainsKey("boat")) continue;
+            var (boat, sampler, gpu) = BoatPoses();
+            drift.Add(new System.Numerics.Vector3(boat.X, boat.Y, boat.Z) - gpu);
+            GD.Print(FormattableString.Invariant(
+                $"boat {i:D2} t={_ocean.WaterTime:F2}: heave {boat.X:F2} m (sampler {sampler.X:F2}, GPU {gpu.X:F2}), pitch {boat.Y:F1} ({sampler.Y:F1}, {gpu.Y:F1}), roll {boat.Z:F1} ({sampler.Z:F1}, {gpu.Z:F1}) deg"));
+        }
+        if (drift.Count > 0)
+        {
+            double Rms(Func<System.Numerics.Vector3, float> f) => Math.Sqrt(drift.Average(d => f(d) * f(d)));
+            GD.Print(FormattableString.Invariant($"boat vs GPU surface over {drift.Count} frames: heave {Rms(d => d.X) * 100:F0} cm, pitch {Rms(d => d.Y):F1} deg, roll {Rms(d => d.Z):F1} deg RMS"));
         }
         for (int i = 0; i < n; i++) Captures.Save(frames[i], $"{Tag}_burst_{i:D2}");
         Captures.Save(Captures.Sheet(frames, 4, 640), $"{Tag}_burst_strip");
+    }
+
+    /// <summary>
+    /// --boat=x,z[,heading]: the demo boat's pose against the water under its hull points, fitted to the CPU sampler (what it
+    /// follows) and to the GPU surface (read back: what is drawn), as heave (m), pitch and roll (degrees).
+    /// </summary>
+    (Vector3 boat, System.Numerics.Vector3 sampler, System.Numerics.Vector3 gpu) BoatPoses()
+    {
+        var hull = Boat.HullPoints;
+        var points = new Vector3[hull.Length];
+        var basis = new Basis(Vector3.Up, _boat.GlobalRotation.Y);
+        for (int i = 0; i < hull.Length; i++) points[i] = _boat.GlobalPosition + basis * new Vector3(hull[i].X, 0f, hull[i].Y);
+        var water = new Ocean.WaterSample[hull.Length];
+        _ocean.SampleWater(points, water);
+        var cfg = _ocean.Config.Cascades;
+        var surface = new GpuSurface(_ocean.Pipelines.Rd, _ocean.Cascades.ToArray(), cfg.Select(c => c.PatchSize).ToArray())
+        {
+            Floor = _ocean.SeaFloor,
+            Calm = _ocean.WaterSampler.Calm,
+        };
+        float level = _ocean.GlobalPosition.Y;
+        var sampled = GpuChecks.HullPose(water.Select(w => w.Height - level).ToArray());
+        var drawn = GpuChecks.HullPose(points.Select(p => surface.Height(new(p.X, p.Z))).ToArray());
+        var r = _boat.GlobalRotation;
+        return (new Vector3(_boat.GlobalPosition.Y - _boat.Draft - level, Mathf.RadToDeg(r.X), Mathf.RadToDeg(r.Z)), sampled, drawn);
     }
 
     /// <summary>Foam field targets (section 9.6) after 8 s at the hero pose, at 60 Hz and at 120 Hz.</summary>

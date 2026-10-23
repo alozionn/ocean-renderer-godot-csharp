@@ -1,10 +1,17 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
+using System.Linq;
 using Godot;
 using Ocean.Core.Config;
 using Ocean.Core.Gpu;
+using Ocean.Core.Sampling;
 using Ocean.Core.Spectrum;
 using Ocean.Simulation;
+using OceanDemo.Boat;
+using OceanNode = Ocean.Ocean;
+using Vec2 = System.Numerics.Vector2;
+using Vec3 = System.Numerics.Vector3;
 
 namespace OceanDev;
 
@@ -92,6 +99,124 @@ internal static class GpuChecks
         double expectedMinJ = 1 - chop * k * a;
         bool ok = eD < 1e-3 && eS < 1e-3 && eJ < 2e-3 && sharpens && Math.Abs(minJ - expectedMinJ) < 2e-3;
         return (ok, $"displacement {eD:E2} m, slope {eS:E2}, J {eJ:E2}, min J {minJ:F4} (expected {expectedMinJ:F4}), crests sharpen: {sharpens}");
+    }
+
+    /// <summary>
+    /// The CPU water sampler against the GPU (swell and chop displacement textures read back once). With every swell
+    /// component the raw sum must equal the texels to half precision (same spectrum, phases, signs, texel centres). Then,
+    /// for the swell alone and for swell plus chop, heights over random world xz and the pose a boat fits to its six hull
+    /// points, against the GPU surface found the shader's way (bilinear lookup at grid / patch size, displacement inverted).
+    /// </summary>
+    public static (bool, string) WaterSampler(OceanNode ocean)
+    {
+        var config = ocean.Config;
+        int n = config.Resolution;
+        const double t = 61.7;
+        var rd = ocean.Pipelines.Rd;
+        var cascades = new OceanCascade[2];
+        for (int i = 0; i < 2; i++)
+        {
+            cascades[i] = new OceanCascade(ocean.Pipelines, i, n);
+            long list = rd.ComputeListBegin();
+            cascades[i].RecordSpectrum(list, config.Cascades[i]);
+            cascades[i].Time = t;
+            cascades[i].RecordTick(list, config.Cascades[i]);
+            rd.ComputeListEnd();
+        }
+        float[] patches = { config.Cascades[0].PatchSize, config.Cascades[1].PatchSize };
+        GpuSurface[] gpuSea = { new(rd, cascades.AsSpan(0, 1), patches), new(rd, cascades, patches) }; // swell; swell + chop
+        foreach (var c in cascades) c.Free();
+
+        var rng = new Random(9);
+        Vec2 Anywhere() => new((float)rng.NextDouble() * 4000 - 2000, (float)rng.NextDouble() * 4000 - 2000);
+        const int samples = 4000, poses = 500;
+        var xzs = Enumerable.Range(0, samples).Select(_ => Anywhere()).ToArray();
+        // The demo boat's hull points (Boat.cs) at random places and headings.
+        var hull = Boat.HullPoints.ToArray();
+        var hullXz = new Vec2[poses * hull.Length];
+        for (int i = 0; i < poses; i++)
+        {
+            var centre = Anywhere();
+            float yaw = (float)rng.NextDouble() * MathF.Tau, cos = MathF.Cos(yaw), sin = MathF.Sin(yaw);
+            for (int j = 0; j < hull.Length; j++)
+                hullXz[i * hull.Length + j] = centre + new Vec2(cos * hull[j].X + sin * hull[j].Y, -sin * hull[j].X + cos * hull[j].Y);
+        }
+        Vec3[] Poses(float[] h) => Enumerable.Range(0, poses).Select(i => HullPose(h.AsSpan(i * hull.Length, hull.Length))).ToArray();
+        static double Rms(IEnumerable<double> v) => Math.Sqrt(v.Average(x => x * x));
+
+        // Every swell component.
+        var c0 = config.Cascades[0];
+        var all = WaveSampler.Select(c0, n, InitialSpectrum.CascadeSeed(0), n * n, out _, window: n / 2 - 1);
+        var full = new WaveSampler { Iterations = 0 };
+        full.Use(0, all, c0.PatchSize, c0.HeightScale, c0.Choppiness, 0.5f * c0.PatchSize / n);
+        full.SetTime(t);
+        double worstTexel = 0, worstFull = 0;
+        for (int i = 0; i < 32; i++)
+        {
+            int x = rng.Next(n), y = rng.Next(n);
+            worstTexel = Math.Max(worstTexel, Math.Abs(full.Sample(new Vec2(x + 0.5f, y + 0.5f) * (c0.PatchSize / n)).Height - gpuSea[0].Texel(0, x, y).Y));
+        }
+        full.Iterations = new WaveSampler().Iterations;
+        for (int i = 0; i < 32; i++) worstFull = Math.Max(worstFull, Math.Abs(full.Sample(xzs[i]).Height - gpuSea[0].Height(xzs[i])));
+        double total = all.Sum(w => (double)w.Amplitude * w.Amplitude);
+        var report = new System.Text.StringBuilder(FormattableString.Invariant(
+            $"all {all.Length} swell components: texels worst {worstTexel * 100:F2} cm, world xz worst {worstFull * 100:F1} cm"));
+
+        int swell = ocean.SampledSwellWaves, chop = ocean.SampledChopWaves;
+        bool ok = worstTexel < 0.01 && worstFull < 0.2;
+        var results = new WaveSample[samples];
+        var hulls = new WaveSample[hullXz.Length];
+        foreach (var (name, sea, rows) in new[]
+        {
+            ("swell", 1, new[] { new[] { swell }, new[] { swell / 4 }, new[] { swell / 2 }, new[] { 2 * swell } }),
+            ("swell + chop", 2, new[] { new[] { swell, chop }, new[] { swell, 0 } }),
+        })
+        {
+            var gpu = xzs.Select(gpuSea[sea - 1].Height).ToArray();
+            var gpuPoses = Poses(hullXz.Select(gpuSea[sea - 1].Height).ToArray());
+            double heaveRms = Rms(gpuPoses.Select(p => (double)p.X)), tiltRms = Rms(gpuPoses.SelectMany(p => new double[] { p.Y, p.Z }));
+            report.Append(FormattableString.Invariant(
+                $"; {name}: GPU RMS height {Rms(gpu.Select(h => (double)h)) * 100:F0} cm, boat heave {heaveRms * 100:F0} cm, pitch/roll {tiltRms:F1} deg"));
+            foreach (var counts in rows)
+            {
+                var watch = Stopwatch.StartNew();
+                var sampler = new WaveSampler();
+                sampler.Configure(config, counts);
+                double selectMs = watch.Elapsed.TotalMilliseconds;
+                sampler.SetTime(t);
+                sampler.Sample(xzs, results);
+                var errors = results.Select((r, i) => (double)(r.Height - gpu[i])).ToArray();
+                sampler.Sample(hullXz, hulls);
+                var poseErrors = Poses(hulls.Select(h => h.Height).ToArray()).Select((p, i) => p - gpuPoses[i]).ToArray();
+                double heave = Rms(poseErrors.Select(p => (double)p.X)), tilt = Rms(poseErrors.SelectMany(p => new double[] { p.Y, p.Z }));
+                for (int i = 0; i < 100; i++) sampler.Sample(xzs.AsSpan(0, 300), results.AsSpan(0, 300));
+                watch.Restart();
+                for (int i = 0; i < 100; i++) sampler.Sample(xzs.AsSpan(0, 300), results.AsSpan(0, 300));
+                double batchMs = watch.Elapsed.TotalMilliseconds / 100;
+                double kept = all.Take(counts[0]).Sum(w => (double)w.Amplitude * w.Amplitude);
+                report.Append(FormattableString.Invariant(
+                    $"; {string.Join("+", counts)} components ({kept / total * 100:F0} % of the swell energy): RMS {Rms(errors) * 100:F0} cm, max {errors.Max(Math.Abs) * 100:F0} cm, boat heave {heave * 100:F0} cm, pitch/roll {tilt:F1} deg, selection {selectMs:F0} ms, 300 samples {batchMs:F2} ms"));
+                // The ocean's own counts must keep a boat within a fifth of the heave and half the pitch/roll it feels.
+                if (counts[0] == swell && (counts.Length == 1 || counts[1] == chop)) ok &= heave < 0.2 * heaveRms && tilt < 0.5 * tiltRms;
+            }
+        }
+        return (ok, report.ToString());
+    }
+
+    /// <summary>Heave (m), pitch and roll (degrees, as Boat.cs) of the least-squares plane through water heights under the boat's hull points.</summary>
+    public static Vec3 HullPose(ReadOnlySpan<float> heights)
+    {
+        var hull = Boat.HullPoints;
+        float a = 0, hx = 0, hz = 0, xx = 0, zz = 0;
+        for (int j = 0; j < hull.Length; j++)
+        {
+            a += heights[j];
+            hx += heights[j] * hull[j].X;
+            hz += heights[j] * hull[j].Y;
+            xx += hull[j].X * hull[j].X;
+            zz += hull[j].Y * hull[j].Y;
+        }
+        return new(a / hull.Length, Mathf.RadToDeg(MathF.Atan(-hz / zz)), Mathf.RadToDeg(MathF.Atan(hx / xx)));
     }
 
     static (bool, string) MipConstant(OceanPipelines p)

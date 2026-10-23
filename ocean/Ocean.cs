@@ -144,6 +144,7 @@ public partial class Ocean : Node3D
         SetFoamDetail();
         ApplySurfaceOverrides(_config.Surface.Keys);
         ApplySpray();
+        ConfigureWater();
         _parameters = OceanParameters.Build(this);
     }
 
@@ -236,6 +237,7 @@ public partial class Ocean : Node3D
         if (diff.FoamTexture) SetFoamDetail();
         ApplySurfaceOverrides(diff.Surface);
         ApplySpray();
+        ConfigureWater();
         SetCascadeUniforms();
         foreach (var set in _parameters)
             foreach (var p in set.Parameters) p.Refresh();

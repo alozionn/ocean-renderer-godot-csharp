@@ -62,6 +62,7 @@ public partial class DemoRoot : Node
 
         _godCamera = GetNodeOrNull<Camera3D>(CameraPath ?? new NodePath());
         _boat = GetNodeOrNull<Boat.Boat>(BoatPath ?? new NodePath());
+        if (_boat != null) _boat.Water = Ocean;
         _boatCamera = GetNodeOrNull<Boat.BoatCamera>(BoatCameraPath ?? new NodePath());
         if (StartInBoat) SetBoatMode(true);
     }

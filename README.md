@@ -24,7 +24,7 @@ The repository has three layers:
 | Folder | What it is |
 |---|---|
 | `ocean/` | **The renderer.** One `Ocean` node, its shaders, sea spray, the sea-floor (shore) input, the config and parameter models. No UI, lights, sky, camera or command line. Copy this folder and you are done. |
-| `demo/` | The showcase scene: sky presets, sun, fog, a seeded island terrain (ported from Mushrook, with caustics) that feeds the ocean its sea floor, a boat with a chase camera, a fly camera, the parameter panels, JSON presets. |
+| `demo/` | The showcase scene: sky presets, sun, fog, a seeded island terrain (ported from Mushrook, with caustics) that feeds the ocean its sea floor, a boat that rides the swell with a chase camera, a fly camera, the parameter panels, JSON presets. |
 | `dev/` | Tooling for development (captures, bursts, benchmark, GPU self-test). Not needed to run anything; see `dev/README.md`. |
 | `tests/` | TUnit tests for the pure maths in `ocean/core/`. |
 
@@ -59,6 +59,9 @@ foreach (var set in ocean.Parameters)          // live knobs for your own UI or 
 | `Parameters` | `ParameterSet`s: Ocean, Cascade 0–2, Foam field, Spray, Surface (built from the shader's uniform groups) |
 | `ConfigChanged` | raised after every `Apply` |
 | `SetSeaFloor(floor)` / `ClearSeaFloor()` / `SeaFloor` | the ground under the water (see [Shores and terrain](#shores-and-terrain)); without one the sea is deep everywhere |
+| `SampleWater(worldPos)` / `SampleWater(positions, results)` | the water over a world xz: `Height` (world y), `Normal`, `Velocity` of the surface water (see [Sampling the water](#sampling-the-water)) |
+| `WaterTime` | the waves' clock: the swell cascade's simulation time (s), restarts with the ocean |
+| `SampledSwellWaves` / `SampledChopWaves` | components the CPU sampler sums (256 / 32) |
 
 ## Shores and terrain
 
@@ -91,6 +94,31 @@ It is uploaded as one small texture and changes how the water behaves over it, a
 
 Outside the sea floor's rectangle, and with no sea floor at all, all of this is off and the ocean looks exactly as it
 did. The demo's island pushes its heightmap on every (re)generation (`DemoRoot`).
+
+## Sampling the water
+
+`SampleWater` answers "how high is the water here, which way does it slope, how fast is it moving" on the CPU, with no
+GPU readback. It re-evaluates the strongest components of the swell and chop spectra (same seed, phases and conventions
+as the GPU, `ocean/core/Sampling/WaveSampler.cs`) as a sum of waves, finds the undisplaced point the choppy displacement
+moves onto the asked xz (two Newton steps), and calms each cascade in shallow water exactly as the shader does
+(`shore_calm` on the sea floor). Time is the cascades' own simulation time, so it matches the surface on screen.
+
+```csharp
+var w = ocean.SampleWater(boat.GlobalPosition);   // w.Height, w.Normal, w.Velocity
+ocean.SampleWater(hullPoints, results);            // batch: spans in, spans out
+```
+
+It follows the swell, not the fine chop: the ripples and all but the strongest chop components are left out. Against
+the GPU surface (`--selftest`, breeze preset, Hs ≈ 11 m), the defaults are off by 68 cm RMS per point, and a 33 m boat
+fitted to six hull points is off by 31 cm in heave and 2.7° in pitch/roll (the boat itself heaves 2.4 m RMS). More
+components close the gap slowly, the spectrum is broad (boat heave error on the swell alone: 64 components 67 cm,
+256 29 cm, 512 18 cm). Cost is
+linear in the count: 300 points take 0.21 ms at the defaults and 0.05 ms at 48 swell components (Release build; a
+Debug build is about 10× slower). Distance fade (`fade_swell`, beyond 750 m from the camera) is not applied. If you
+need the drawn surface to the centimetre, the same API can sit on an asynchronous GPU readback instead.
+
+The demo boat (`demo/boat/Boat.cs`) floats on it kinematically: it samples six hull points, fits heave, pitch and roll
+to them and follows that pose critically damped, fed the water's own rate of change so it does not lag the swell.
 
 ## Sea spray
 
@@ -170,7 +198,7 @@ sunset.
 | C | toggle god view / boat |
 
 In boat mode: W / S throttle and reverse, A / D steer (needs speed), Shift ×3 speed, hold right mouse to orbit the
-chase camera, mouse wheel to zoom. The boat holds a fixed height; it does not float on the waves.
+chase camera, mouse wheel to zoom. The boat rides the swell ([Sampling the water](#sampling-the-water)).
 
 Both panels are open when the demo starts; F1 / F2 hide them. They exist only in debug builds (running from the editor
 or a debug export). Presets save to `user://ocean_custom.json` and load back as "custom".
@@ -187,7 +215,7 @@ dotnet run --project tests/Ocean.Tests
 
 `<godot>` is the Godot 4.7 mono console executable. The TUnit project links `ocean/core/**` directly (that folder is pure
 C#: if a core file touched Godot, the test build would fail). `--selftest` runs the GPU checks (spectrum vs the CPU
-port, an analytic single wave, mip chains) and the foam field targets.
+port, an analytic single wave, mip chains, the water sampler against read-back swell and chop) and the foam field targets.
 
 ## Performance
 

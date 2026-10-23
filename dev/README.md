@@ -19,8 +19,11 @@ Not shipped: `dotnet build -p:Ship=true` excludes this folder, and nothing outsi
 | `--capture=<pose,...>` | per pose: place the camera, settle 3 s (`--settle=<s>`), save `.scratch/captures/<tag>_<pose>.png`, then a contact sheet. `current` keeps the `--cam` pose |
 | `--tag=<name>` | file name prefix |
 | `--burst=<n>` | n consecutive frames (centre 640×360) and a strip: the flicker check |
+| `--interval=<s>` | with `--burst`: one frame every s seconds (a time lapse) |
+| `--boat=x,z[,heading]` | puts the demo boat there, stopped; with `--burst`, prints its heave, pitch and roll per frame against the sampler and the read-back GPU surface |
+| `--no-float` | the boat ignores the water (bench A/B for the sampler) |
 | `--bench=<s>` | average and 1 %-low frame time after a 3 s warm-up |
-| `--selftest` | GPU checks + foam targets, PASS/FAIL per check, exit code 0/1 |
+| `--selftest` | GPU checks (incl. the water sampler against read-back swell and chop) + foam targets, PASS/FAIL per check, exit code 0/1 |
 | `--foam-stats` | foam field numbers at 60 Hz and 120 Hz from the hero pose |
 | `--panels` | shows both parameter panels unfolded (for UI captures) |
 | `--prepare-assets` | one-off asset processing from `.scratch/downloads/` (see the asset READMEs) |
