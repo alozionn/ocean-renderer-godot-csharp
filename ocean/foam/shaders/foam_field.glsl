@@ -25,7 +25,7 @@ layout(set = 1, binding = 3, std140) uniform Shore {
 	vec4 sea_floor_rect; // xy corner, zw 1 / size; z = 0: no sea floor
 	vec4 body_rect;      // xy corner, z page size (0: no bodies), w pages per atlas row
 	vec4 calm_depth;     // shallow swell, chop, ripple depth (m), lake waves
-	vec4 contact;        // x width (m), y foam gain, z crest height for full foam (m), w calm-water share
+	vec4 contact;        // x width (m), y foam gain, z crest height for full foam (m), w unused
 	vec4 breaking;       // x breaking ratio, y gain, z samples per page side, w 1 if any shore data
 } sh;
 
@@ -97,9 +97,9 @@ vec2 shore_foam(vec2 world) {
 	float incoming = d0.y + d1.y;
 	float here = d0.y * calm.x + d1.y * calm.y + d2.y * calm.z;
 	float wet = step(0.0, depth);
-	// Contact: a thin strip along the waterline, foaming when a crest arrives, a little in calm water too.
+	// Contact: a thin strip along the waterline, foaming only when a crest arrives (none in calm water).
 	float strip = (1.0 - smoothstep(0.0, sh.contact.x, distance)) * step(-0.5, distance) * (1.0 - shelter);
-	float crest = mix(sh.contact.w, 1.0, smoothstep(0.0, sh.contact.z, incoming));
+	float crest = smoothstep(0.0, sh.contact.z, incoming);
 	float contact = strip * crest * sh.contact.y;
 	// Breaking: water shallower than breaking_ratio x the local wave height.
 	float breaking = smoothstep(0.15, 0.6, sh.breaking.x * 2.0 * max(here, 0.0) - depth) * wet * open * sh.breaking.y;

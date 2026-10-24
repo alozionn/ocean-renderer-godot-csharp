@@ -4,8 +4,8 @@
 struct FoamSample {
 	float coverage; // final foam opacity
 	float white;    // lace part (opaque foam)
-	float density;  // field density incl. shore
-	float fresh;    // field freshness incl. shore
+	float density;  // field density (open sea and shore)
+	float fresh;    // field freshness
 	vec2 relief;    // lace gradient in grid space
 };
 
@@ -81,11 +81,11 @@ mat2 foam_uv_matrix(float streak_angle) {
 		vec2(s / (foam_detail_stretch * foam_detail_tile), c / foam_detail_tile));
 }
 
-FoamSample foam_composite(vec2 grid, vec2 grid_dx, vec2 grid_dy, float dist, float shore, float field_scale, bool relief) {
+FoamSample foam_composite(vec2 grid, vec2 grid_dx, vec2 grid_dy, float dist, bool relief) {
 	FoamSample f;
-	vec2 field = foam_field_lookup(grid) * exp(-dist / foam_fade_range) * field_scale;
-	f.density = field.r + shore;
-	f.fresh = field.g + 0.5 * shore;
+	vec2 field = foam_field_lookup(grid) * exp(-dist / foam_fade_range);
+	f.density = field.r;
+	f.fresh = field.g;
 	float body = smoothstep(foam_trail_low, foam_trail_high, f.density);
 	float cap = smoothstep(foam_cap_low, foam_cap_high, f.fresh);
 	mat2 m = foam_uv_matrix(foam_streak_angle);

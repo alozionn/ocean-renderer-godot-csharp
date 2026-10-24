@@ -103,7 +103,6 @@ uniform float foam_wrap : hint_range(0.0, 1.0, 0.01) = 0.35;
 uniform vec3 milk_color : source_color = vec3(0.5, 0.55, 0.56);
 uniform float milk_strength : hint_range(0.0, 1.0, 0.01) = 0.15;
 uniform float milk_range : hint_range(0.05, 5.0, 0.05) = 1.5;
-uniform float shore_foam_distance : hint_range(0.0, 5.0, 0.05) = 0.6;
 uniform float shore_fade_distance : hint_range(0.01, 3.0, 0.01) = 0.3;
 
 // Only active with a sea floor (Ocean.SetSeaFloor). Depths in metres of water, distances in metres from the shore.
@@ -114,11 +113,10 @@ uniform float shallow_ripple_depth : hint_range(0.05, 5.0, 0.05) = 0.6;
 uniform float lake_waves : hint_range(0.0, 1.0, 0.01) = 0.15;
 // Shore foam is injected into the foam field (foam_field.glsl), where the field's decay and spread shape it: a strip
 // contact_width wide along every waterline (coasts and bodies) foams when a crest of at least contact_crest arrives
-// (contact_calm of that in calm water), and water shallower than breaking_ratio x the wave height breaks.
+// (none in calm water), and water shallower than breaking_ratio x the wave height breaks.
 uniform float contact_width : hint_range(0.0, 10.0, 0.05) = 2.5;
 uniform float contact_foam : hint_range(0.0, 2.0, 0.01) = 1.5;
 uniform float contact_crest : hint_range(0.05, 5.0, 0.05) = 0.8;
-uniform float contact_calm : hint_range(0.0, 1.0, 0.01) = 0.3;
 uniform float breaking_ratio : hint_range(0.0, 3.0, 0.01) = 1.3;
 uniform float breaking_strength : hint_range(0.0, 2.0, 0.01) = 0.6;
 // Swash: the water near the waterline lifts by up to swash_height, tapering over swash_width seaward, once every
@@ -208,11 +206,10 @@ void fragment() {
 	}
 	float thickness = distance(behind, VERTEX);
 
-	// Contact foam against anything in the depth buffer that is not a registered body (a thin line). Coast and body
-	// foam, and breaking in the shallows, come from the foam field, which also calms its open-sea foam over the shallows.
-	float shore = 1.0 - smoothstep(0.0, shore_foam_distance, shore_depth);
+	// All shore and object foam (contact with waterlines, breaking in the shallows) comes from the foam field, which also
+	// calms its open-sea foam over the shallows. Nothing is drawn here from depth or distance.
 	float wet = step(0.0, sea.depth);
-	FoamSample foam = foam_composite(v_grid, grid_dx, grid_dy, dist, shore, 1.0, b > 0.0);
+	FoamSample foam = foam_composite(v_grid, grid_dx, grid_dy, dist, b > 0.0);
 	float milk = smoothstep(0.0, milk_range, foam.density) * milk_strength;
 
 	// Foam flattens the wave normal (but still follows it) and adds the lace's own relief.
