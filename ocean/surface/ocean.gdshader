@@ -42,7 +42,7 @@ uniform float height_tint_strength : hint_range(0.0, 1.0, 0.01) = 0.1;
 uniform vec3 water_transmittance : source_color = vec3(0.35, 0.75, 0.8);
 uniform float absorption_distance : hint_range(0.1, 40.0, 0.1) = 10.0;
 uniform float refraction_strength : hint_range(0.0, 0.5, 0.005) = 0.04;
-// Water thickness along the view (m) over which refraction grows to full strength. Thin water bends little; a full
+// Sea-floor water depth (m) over which refraction grows to full strength. Thin water bends little; a full
 // offset there lands on sea bed nearer than the surface, gets rejected, and the switch shows as a jagged line.
 uniform float refraction_depth : hint_range(0.1, 20.0, 0.1) = 4.0;
 
@@ -103,7 +103,7 @@ uniform float foam_wrap : hint_range(0.0, 1.0, 0.01) = 0.35;
 uniform vec3 milk_color : source_color = vec3(0.5, 0.55, 0.56);
 uniform float milk_strength : hint_range(0.0, 1.0, 0.01) = 0.15;
 uniform float milk_range : hint_range(0.05, 5.0, 0.05) = 1.5;
-uniform float shore_fade_distance : hint_range(0.01, 3.0, 0.01) = 0.3;
+uniform float shore_fade_distance : hint_range(0.01, 3.0, 0.01) = 1.0;
 
 // Only active with a sea floor (Ocean.SetSeaFloor). Depths in metres of water, distances in metres from the shore.
 group_uniforms shore;
@@ -111,6 +111,10 @@ uniform float shallow_swell_depth : hint_range(0.5, 60.0, 0.5) = 16.0;
 uniform float shallow_chop_depth : hint_range(0.1, 20.0, 0.1) = 5.0;
 uniform float shallow_ripple_depth : hint_range(0.05, 5.0, 0.05) = 0.6;
 uniform float lake_waves : hint_range(0.0, 1.0, 0.01) = 0.15;
+// The water fades out over the last shore_fade_depth metres of sea-floor depth. That depth is bilinear between the
+// terrain samples (and smooth around bodies), so the waterline is a smooth curve instead of following the terrain mesh's
+// triangles (a sawtooth on gentle beaches) or a low-poly prop's facets.
+uniform float shore_fade_depth : hint_range(0.01, 3.0, 0.01) = 0.4;
 // Shore foam is injected into the foam field (foam_field.glsl), where the field's decay and spread shape it: a strip
 // contact_width wide along every waterline (coasts and bodies) foams when a crest of at least contact_crest arrives
 // (none in calm water), and water shallower than breaking_ratio x the wave height breaks.
@@ -188,15 +192,21 @@ void fragment() {
 	// Shore depth is the distance along the view ray, so crests seen against the sky stay opaque.
 	vec3 straight = view_position(SCREEN_UV, textureLod(depth_tex, SCREEN_UV, 0.0).r, INV_PROJECTION_MATRIX);
 	float shore_depth = distance(straight, VERTEX);
-	vec3 view_normal = (VIEW_MATRIX * vec4(normal, 0.0)).xyz;
+	// Refraction bends by the swell and chop only: the ripples (2.7 cm texels) shattered the edge of anything seen under
+	// the surface into stair steps.
+	vec2 refract_slope = s0.xy * calmed.x + s1.xy * calmed.y;
+	vec3 view_normal = (VIEW_MATRIX * vec4(normalize(vec3(-refract_slope.x, 1.0, -refract_slope.y)), 0.0)).xyz;
 	// The offset fades out near the screen edges, so the sample never leaves the screen (it showed as a dark bar).
 	vec2 edge = smoothstep(vec2(0.0), vec2(0.06), min(SCREEN_UV, 1.0 - SCREEN_UV));
-	vec2 refracted_uv = SCREEN_UV + view_normal.xy * refraction_strength * smoothstep(0.0, refraction_depth, shore_depth) * edge;
+	// Scaled by the sea floor's depth (smooth, also around bodies), not the per-pixel depth behind: that jumps at every
+	// silhouette under water (a rock's flank in front of the sea bed), and the bend jumped with it into stair steps.
+	vec2 refracted_uv = SCREEN_UV + view_normal.xy * refraction_strength * smoothstep(0.0, refraction_depth, sea.depth) * edge;
 	vec3 behind = view_position(refracted_uv, textureLod(depth_tex, refracted_uv, 0.0).r, INV_PROJECTION_MATRIX);
-	if (behind.z > VERTEX.z) {
-		refracted_uv = SCREEN_UV;
-		behind = straight;
-	}
+	// A sample in front of the surface (or only just behind it) falls back towards the unbent one, smoothly: a hard
+	// per-pixel switch drew stair steps along everything that crosses the waterline.
+	float keep = smoothstep(0.0, 0.5, VERTEX.z - behind.z);
+	refracted_uv = mix(SCREEN_UV, refracted_uv, keep);
+	behind = mix(straight, behind, keep);
 	float thickness = distance(behind, VERTEX);
 
 	// All shore and object foam (contact with waterlines, breaking in the shallows) comes from the foam field, which also
@@ -234,7 +244,7 @@ void fragment() {
 	EMISSION = refracted * transmittance * lagoon_tint * (1.0 - fresnel) * (1.0 - foam.coverage);
 	ROUGHNESS = mix(sqrt(alpha), foam_roughness, foam.coverage);
 	SPECULAR = 0.354 * (1.0 - smoothstep(0.0, 0.4, foam.coverage)); // f0 = 0.16 * 0.354^2 = 0.02
-	ALPHA = smoothstep(0.0, shore_fade_distance, shore_depth);
+	ALPHA = smoothstep(0.0, shore_fade_distance, shore_depth) * smoothstep(0.0, shore_fade_depth, sea.depth);
 	v_foam = foam.coverage;
 	v_white = foam.white;
 	v_bubbles = max(milk, foam.coverage);

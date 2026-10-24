@@ -24,16 +24,16 @@ public partial class WaterProps : Node3D
         var wood = new StandardMaterial3D { AlbedoColor = new Color(0.36f, 0.25f, 0.16f), Roughness = 0.85f };
         var deck = new StandardMaterial3D { AlbedoColor = new Color(0.55f, 0.45f, 0.33f), Roughness = 0.9f };
 
-        // Sea stack: a faceted, squashed sphere 14 m across at the waterline, 15 m tall, debris sloping out 6 m around it.
+        // Sea stack: a stretched sphere 14 m across at the waterline, 15 m tall, debris sloping out 6 m around it.
         var stack = new Vector2(120f, -345f);
-        Add(new SphereMesh { Radius = 7.2f, Height = 30f, RadialSegments = 9, Rings = 7 }, rock, new Vector3(stack.X, 0f, stack.Y), 0.4f);
+        Add(new SphereMesh { Radius = 7.2f, Height = 30f, RadialSegments = 32, Rings = 16 }, rock, new Vector3(stack.X, 0f, stack.Y), 0.4f);
         Bodies.Add(new WaterBody
         {
             Position = new(stack.X, stack.Y), Length = 14f, Beam = 14f, Rounding = 7f, Top = 15f, Skirt = 6f,
         });
         // A submerged boulder beside it, 1.5 m under the surface: the bigger crests break over it.
         var reef = new Vector2(104f, -330f);
-        Add(new SphereMesh { Radius = 3f, Height = 4f, RadialSegments = 7, Rings = 4 }, rock, new Vector3(reef.X, -3.5f, reef.Y), 1.1f);
+        Add(new SphereMesh { Radius = 3f, Height = 4f, RadialSegments = 24, Rings = 8 }, rock, new Vector3(reef.X, -3.5f, reef.Y), 1.1f);
         Bodies.Add(new WaterBody { Position = new(reef.X, reef.Y), Length = 5f, Beam = 5f, Rounding = 2.5f, Top = -1.5f, Skirt = 3f });
 
         // Floating pontoon (12 x 2.4 m, 0.4 m freeboard, 0.5 m draft) and the four piles holding it.
