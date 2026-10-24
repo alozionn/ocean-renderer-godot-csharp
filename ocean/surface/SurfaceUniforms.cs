@@ -31,7 +31,7 @@ internal static class SurfaceUniforms
     /// <summary>Surface "shore" uniforms the spray also reads; copied from the surface material whenever they change.</summary>
     public static readonly string[] ShoreShared =
     {
-        "shallow_swell_depth", "shallow_chop_depth", "shallow_ripple_depth", "lake_waves",
+        "shallow_swell_depth", "shallow_chop_depth", "shallow_ripple_depth", "lake_waves", "shore_waves", "shore_waves_land",
         "breaking_ratio",
     };
 }

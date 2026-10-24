@@ -88,7 +88,7 @@ internal sealed class ShoreTextures
     }
 
     /// <summary>The foam settings the compute reads, from the surface material's shore uniforms.</summary>
-    public void SetFoam(Vector4 calmDepth, Vector4 contact, float breakingRatio, float breakingGain)
+    public void SetFoam(Vector4 calmDepth, Vector4 nearShore, float breakingRatio, float breakingGain)
     {
         void Put(int at, Vector4 v)
         {
@@ -98,7 +98,7 @@ internal sealed class ShoreTextures
             _block[at + 3] = v.W;
         }
         Put(8, calmDepth);
-        Put(12, contact);
+        Put(12, nearShore);
         _block[16] = breakingRatio;
         _block[17] = breakingGain;
         _blockDirty = true;

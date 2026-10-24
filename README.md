@@ -87,10 +87,10 @@ It is uploaded as one small texture and changes how the water behaves over it, a
 
 | | |
 |---|---|
-| **Quiet water** | each cascade's waves fade out as the water over the *terrain* gets shallow: swell first (`shallow_swell_depth` 6 m, so it visibly reaches the shore), then chop (5 m), then ripples (0.6 m). Over land there are no waves, so water never washes through beaches. Lakes keep `lake_waves` (15 %) of every cascade. The foam field's open-sea (whitecap) foam is calmed with the chop. Bodies do not calm waves this way: a rock or reef is too small to calm a swell, it breaks it. |
-| **Shore foam** | injected into the foam field, not drawn: a strip `contact_width` (2.5 m) wide along every waterline, coast or [body](#bodies-in-the-water), foams only when a crest arrives (full at `contact_crest` 0.8 m of open-sea height, none in calm water, gain `contact_foam` 1.5), and water shallower than `breaking_ratio` (1.3) × the local wave height breaks (`breaking_strength` 0.6): sandbars, reefs, submerged bodies, a rock's sloping foot. The field's decay and spread then shape it like any other foam, so it comes and goes with the waves, drifts, and has no fixed width; its fresh foam also throws spray. Within twice that width of a waterline it fades `contact_linger` (50 %) slower, so a hit stays a little while without settling into a collar. Nothing is drawn statically: there is no depth-buffer contact line any more, so objects that are neither terrain nor registered bodies get no foam (register them as bodies). |
-| **Run-up** | the swell the shallows calmed comes back at the waterline: where it was calmed, the water rises with the open-sea swell and chop height there (`runup_strength` 0.6 m per m, smoothed) and runs up the beach, and drops in the troughs, baring sand. Softly limited to `runup_up` 0.6 m above and `runup_down` 0.2 m below sea level, over water shallower than `runup_depth` 3 m and up to `runup_land` 12 m inland; not in lakes. It follows the actual arriving waves, so no two run-ups match. The water's edge fade follows the lifted surface. The CPU sampler leaves it out. |
-| **Colour** | a turquoise lagoon tint over shallow ground (`lagoon_color`, `lagoon_depth` 6 m) and stirred-up sand where the open sea is shallower than `sediment_depth` (3 m, `sediment_color`). |
+| **Quiet water** | each cascade's waves fade out as the water over the *terrain* gets shallow: swell first (`shallow_swell_depth` 6 m), then chop (5 m), then ripples (0.6 m), but every cascade keeps at least `shore_waves` (50 %) right up to the waterline and `shore_waves_land` (6 m) inland, so the real waterline rises and falls against beaches and rocks; the terrain hides the water under it. Lakes keep `lake_waves` (15 %) of every cascade. The foam field's open-sea (whitecap) foam is calmed with the chop. Bodies do not calm waves; a rock or reef breaks them. |
+| **Edge foam** | from the depth buffer, like a classic toon shoreline: white where the water is less than `edge_foam_width` (0.8 m) above anything solid behind it (sand, rock, a hull, any mesh), measured vertically so it keeps its width at any view angle, `edge_foam_strength` 0.9, textured by the foam lace. Exact against what is drawn, nothing to register, and it moves with the waterline. Not where the sky or something more than ~30 m away is behind the water. The water also fades out over the last `shore_fade_distance` (0.3 m) above a solid surface, so a gentle beach gets a soft waterline. |
+| **Breaking** | water shallower than `breaking_ratio` (1.3) × the local wave height injects foam into the foam field (`breaking_strength` 0.6): sandbars, reefs, submerged bodies, a rock's sloping foot. The field fades and spreads it, and its fresh foam throws spray. |
+| **Colour** | a turquoise lagoon tint over shallow terrain (`lagoon_color`, `lagoon_depth` 6 m) and stirred-up sand where the open sea is shallower than `sediment_depth` (3 m, `sediment_color`). Both use the terrain's depth only, so bodies get no sand ring. |
 
 Outside the sea floor's rectangle, and with no sea floor at all, all of this is off and the ocean looks exactly as it
 did. The demo's island pushes its heightmap on every (re)generation (`DemoRoot`). The swell direction (for the lee
@@ -100,10 +100,11 @@ energy at wave vectors along the wind and each component is `cos(k·p + ωt)`.
 ## Bodies in the water
 
 Rocks, posts, pontoons and hulls register a footprint with the ocean, and every water effect reads that one list.
-Stationary bodies fold into the shore data the same way islands do, so a sea stack gets foam when crests hit it,
-breaks on its sloping foot and a calm lee; a post gets a small collar; a moored hull foam along its sides and a
+Stationary bodies fold into the shore data the same way islands do: a sea stack's sloping foot makes the waves break
+and it casts a calm lee; a moored hull casts a
 lee while the waves keep running under it. Waves are never cut inside a footprint: the body hides the water inside
-it, so the waterline on a rock rises and falls with the waves.
+it, so the waterline on a rock rises and falls with the waves. Edge foam around them comes from the depth buffer, like for
+any other mesh; bodies are not needed for it.
 
 ```csharp
 using Ocean.Core.Bodies;

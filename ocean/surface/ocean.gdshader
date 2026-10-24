@@ -103,7 +103,7 @@ uniform float foam_wrap : hint_range(0.0, 1.0, 0.01) = 0.35;
 uniform vec3 milk_color : source_color = vec3(0.5, 0.55, 0.56);
 uniform float milk_strength : hint_range(0.0, 1.0, 0.01) = 0.15;
 uniform float milk_range : hint_range(0.05, 5.0, 0.05) = 1.5;
-uniform float shore_fade_distance : hint_range(0.01, 3.0, 0.01) = 1.0;
+uniform float shore_fade_distance : hint_range(0.01, 3.0, 0.01) = 0.3;
 
 // Only active with a sea floor (Ocean.SetSeaFloor). Depths in metres of water, distances in metres from the shore.
 group_uniforms shore;
@@ -111,29 +111,18 @@ uniform float shallow_swell_depth : hint_range(0.5, 60.0, 0.5) = 6.0;
 uniform float shallow_chop_depth : hint_range(0.1, 20.0, 0.1) = 5.0;
 uniform float shallow_ripple_depth : hint_range(0.05, 5.0, 0.05) = 0.6;
 uniform float lake_waves : hint_range(0.0, 1.0, 0.01) = 0.15;
-// The water fades out over the last shore_fade_depth metres of sea-floor depth. That depth is bilinear between the
-// terrain samples (and smooth around bodies), so the waterline is a smooth curve instead of following the terrain mesh's
-// triangles (a sawtooth on gentle beaches) or a low-poly prop's facets.
-uniform float shore_fade_depth : hint_range(0.01, 3.0, 0.01) = 0.4;
-// Shore foam is injected into the foam field (foam_field.glsl), where the field's decay and spread shape it: a strip
-// contact_width wide along every waterline (coasts and bodies) foams when a crest of at least contact_crest arrives
-// (none in calm water), and water shallower than breaking_ratio x the wave height breaks.
-uniform float contact_width : hint_range(0.0, 10.0, 0.05) = 2.5;
-uniform float contact_foam : hint_range(0.0, 2.0, 0.01) = 1.5;
-uniform float contact_crest : hint_range(0.05, 5.0, 0.05) = 0.8;
+// Waves keep at least shore_waves of their strength up to the waterline and shore_waves_land metres inland, so the real
+// waterline rises and falls against beaches and rocks. The terrain hides the water under it.
+uniform float shore_waves : hint_range(0.0, 1.0, 0.01) = 0.5;
+uniform float shore_waves_land : hint_range(0.0, 30.0, 0.5) = 6.0;
+// Edge foam: white where the water is less than edge_foam_width metres above anything solid behind it (sand, rock,
+// a hull: whatever is in the depth buffer), measured vertically so it keeps its width at any view angle. It follows
+// the moving waterline and is textured by the foam lace.
+uniform float edge_foam_width : hint_range(0.0, 5.0, 0.05) = 0.8;
+uniform float edge_foam_strength : hint_range(0.0, 2.0, 0.01) = 0.9;
+// Breaking: water shallower than breaking_ratio x the wave height injects foam into the foam field.
 uniform float breaking_ratio : hint_range(0.0, 3.0, 0.01) = 1.3;
 uniform float breaking_strength : hint_range(0.0, 2.0, 0.01) = 0.6;
-// Lingering: near waterlines the foam fades contact_linger times slower (0: like open sea), so a hit stays a while.
-uniform float contact_linger : hint_range(0.0, 0.9, 0.01) = 0.5;
-// Run-up: the swell the shallows took away comes back at the waterline. The water there rises with each arriving crest
-// and runs up the beach, and drops in the trough, uncovering sand: runup_strength metres per metre of open-sea
-// height, softly limited to runup_up above and runup_down below sea level, over water shallower than runup_depth and
-// up to runup_land metres inland.
-uniform float runup_strength : hint_range(0.0, 2.0, 0.01) = 0.6;
-uniform float runup_up : hint_range(0.0, 3.0, 0.01) = 0.6;
-uniform float runup_down : hint_range(0.0, 2.0, 0.01) = 0.2;
-uniform float runup_depth : hint_range(0.5, 10.0, 0.1) = 3.0;
-uniform float runup_land : hint_range(1.0, 40.0, 0.5) = 12.0;
 uniform vec3 lagoon_color : source_color = vec3(0.04, 0.55, 0.55);
 uniform float lagoon_depth : hint_range(0.1, 30.0, 0.1) = 6.0;
 uniform float lagoon_strength : hint_range(0.0, 1.0, 0.01) = 0.6;
@@ -147,7 +136,6 @@ group_uniforms;
 
 varying vec2 v_grid; // undisplaced world xz: the simulation's texture coordinate, so foam rides with the water
 varying float v_height;
-varying float v_runup; // run-up lift (m), so the fade at the waterline follows the moving edge
 varying float v_foam;
 varying float v_white;
 varying float v_bubbles;
@@ -164,20 +152,6 @@ vec3 displacement_at(vec2 grid, float dist, float spacing, vec3 calm) {
 		+ textureLod(displacement_2, grid / patch_sizes.z, lod.z).xyz * fade.z;
 }
 
-// Run-up near the waterline: the open-sea swell and chop height here (what the shallows calmed away), smoothed (mip 2),
-// returned where the swell was calmed: positive at crests (water climbs the beach), negative in troughs (it draws back).
-float shore_runup(ShoreSample s, vec2 grid, float swell_calm) {
-	if (runup_strength <= 0.0 || s.depth > runup_depth || s.distance < -runup_land) return 0.0;
-	// Open sea or land, not a lake; fading out seaward and far inland; only as much as the shallows took from the swell.
-	float where = max(s.open, step(s.depth, 0.0)) * (1.0 - smoothstep(0.3 * runup_depth, runup_depth, s.depth))
-		* smoothstep(-runup_land, -0.5 * runup_land, s.distance) * (1.0 - swell_calm);
-	if (where <= 0.0) return 0.0;
-	float h = (textureLod(displacement_0, grid / patch_sizes.x, 2.0).y + textureLod(displacement_1, grid / patch_sizes.y, 2.0).y) * runup_strength;
-	// Soft limits: a storm swell must not flood the island.
-	h = h > 0.0 ? runup_up * (1.0 - exp(-h / max(runup_up, 1e-3))) : -runup_down * (1.0 - exp(h / max(runup_down, 1e-3)));
-	return h * where;
-}
-
 void vertex() {
 	v_grid = VERTEX.xz;
 	vec2 local = VERTEX.xz - MODEL_MATRIX[3].xz; // offset from the (snapped) mesh centre
@@ -187,8 +161,6 @@ void vertex() {
 	vec3 d = displacement_at(v_grid, length(VERTEX.xz - CAMERA_POSITION_WORLD.xz), spacing, calm);
 	VERTEX += d;
 	v_height = d.y;
-	v_runup = shore_runup(sea, v_grid, calm.x);
-	VERTEX.y += v_runup;
 }
 
 void fragment() {
@@ -218,8 +190,13 @@ void fragment() {
 
 	// Water thickness behind this pixel along the refracted ray (screen-space offset), rejecting samples in front.
 	// Shore depth is the distance along the view ray, so crests seen against the sky stay opaque.
-	vec3 straight = view_position(SCREEN_UV, textureLod(depth_tex, SCREEN_UV, 0.0).r, INV_PROJECTION_MATRIX);
+	float raw_depth = textureLod(depth_tex, SCREEN_UV, 0.0).r;
+	vec3 straight = view_position(SCREEN_UV, raw_depth, INV_PROJECTION_MATRIX);
 	float shore_depth = distance(straight, VERTEX);
+	// How far the water is above the solid thing behind it, vertically (m). Only for something solid and near: the sky is
+	// on the far plane (reverse-Z depth 0), and a far island behind a crest must not count as contact.
+	float above = (INV_VIEW_MATRIX * vec4(VERTEX, 1.0)).y - (INV_VIEW_MATRIX * vec4(straight, 1.0)).y;
+	float solid = step(1e-6, raw_depth) * (1.0 - smoothstep(15.0, 30.0, shore_depth));
 	// Refraction bends by the swell and chop only: the ripples (2.7 cm texels) shattered the edge of anything seen under
 	// the surface into stair steps.
 	vec2 refract_slope = s0.xy * calmed.x + s1.xy * calmed.y;
@@ -237,10 +214,11 @@ void fragment() {
 	behind = mix(straight, behind, keep);
 	float thickness = distance(behind, VERTEX);
 
-	// All shore and object foam (contact with waterlines, breaking in the shallows) comes from the foam field, which also
-	// calms its open-sea foam over the shallows. Nothing is drawn here from depth or distance.
-	float wet = step(0.0, sea.depth);
-	FoamSample foam = foam_composite(v_grid, grid_dx, grid_dy, dist, b > 0.0);
+	// Edge foam where the water meets anything solid, from the depth buffer: exact against what is drawn, nothing to
+	// register, and it moves with the waterline as the waves rise and fall. Breaking in the shallows comes from the foam
+	// field, which also calms its open-sea foam there.
+	float edge_foam = (1.0 - smoothstep(0.0, edge_foam_width, abs(above))) * solid * edge_foam_strength;
+	FoamSample foam = foam_composite(v_grid, grid_dx, grid_dy, dist, edge_foam, b > 0.0);
 	float milk = smoothstep(0.0, milk_range, foam.density) * milk_strength;
 
 	// Foam flattens the wave normal (but still follows it) and adds the lace's own relief.
@@ -256,8 +234,9 @@ void fragment() {
 	scatter = mix(scatter, height_tint, smoothstep(0.0, 2.5, v_height) * height_tint_strength);
 	scatter = mix(scatter, milk_color, milk);
 	// With a sea floor: turquoise over shallow ground (lagoon), sand stirred up where the open sea is shallow (sediment).
-	float lagoon = lagoon_strength * exp(-max(sea.depth, 0.0) / lagoon_depth) * wet;
-	float sediment = sediment_strength * (1.0 - smoothstep(0.0, sediment_depth, sea.depth)) * sea.open * wet;
+	// Terrain depth only: a body's sloping foot must not paint a sand ring around it.
+	float lagoon = lagoon_strength * exp(-max(sea.wave_depth, 0.0) / lagoon_depth) * step(0.0, sea.wave_depth);
+	float sediment = sediment_strength * (1.0 - smoothstep(0.0, sediment_depth, sea.wave_depth)) * sea.open * step(0.0, sea.wave_depth);
 	scatter = mix(mix(scatter, lagoon_color, lagoon), sediment_color, sediment);
 	vec3 transmittance = pow(water_transmittance, vec3(thickness / absorption_distance)) * (1.0 - milk) * (1.0 - 0.6 * sediment);
 	vec3 lagoon_tint = mix(vec3(1.0), lagoon_color * 2.0, lagoon);
@@ -272,7 +251,9 @@ void fragment() {
 	EMISSION = refracted * transmittance * lagoon_tint * (1.0 - fresnel) * (1.0 - foam.coverage);
 	ROUGHNESS = mix(sqrt(alpha), foam_roughness, foam.coverage);
 	SPECULAR = 0.354 * (1.0 - smoothstep(0.0, 0.4, foam.coverage)); // f0 = 0.16 * 0.354^2 = 0.02
-	ALPHA = smoothstep(0.0, shore_fade_distance, shore_depth) * smoothstep(0.0, shore_fade_depth, sea.depth + v_runup);
+	// Soft edge against anything solid: along the view ray (crests seen against the sky stay opaque), and vertically
+	// where something solid is behind, so a gentle beach gets a wide soft waterline instead of the mesh's sawtooth.
+	ALPHA = smoothstep(0.0, shore_fade_distance, shore_depth) * mix(1.0, smoothstep(0.0, shore_fade_distance, above), solid * step(0.0, above));
 	v_foam = foam.coverage;
 	v_white = foam.white;
 	v_bubbles = max(milk, foam.coverage);

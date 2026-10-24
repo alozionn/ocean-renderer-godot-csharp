@@ -7,11 +7,13 @@ namespace Ocean.Core.Sampling;
 /// <summary>
 /// CPU copy of shore.gdshaderinc: shore_at (body pages, else the sea floor texture, bilinear, deep open sea outside
 /// both) and shore_calm (each cascade fades with water depth; enclosed water keeps lake_waves of every cascade; the lee
-/// of bodies calms swell and chop). Values are the shader's uniforms of the same names.
+/// of bodies calms swell and chop; near the waterline every cascade keeps at least ShoreWaves, fading out
+/// ShoreWavesLand metres inland). Values are the shader's uniforms of the same names.
 /// </summary>
-public readonly record struct ShoreCalm(float SwellDepth, float ChopDepth, float RippleDepth, float LakeWaves)
+public readonly record struct ShoreCalm(float SwellDepth, float ChopDepth, float RippleDepth, float LakeWaves,
+    float ShoreWaves = 0f, float ShoreWavesLand = 6f)
 {
-    public static readonly ShoreCalm Default = new(6f, 5f, 0.6f, 0.15f);
+    public static readonly ShoreCalm Default = new(6f, 5f, 0.6f, 0.15f, 0.5f, 6f);
 
     /// <summary>What shore_at reports without a sea floor: deep open sea.</summary>
     public static readonly (float Depth, float Open) Deep = (1e4f, 1f);
@@ -28,7 +30,9 @@ public readonly record struct ShoreCalm(float SwellDepth, float ChopDepth, float
         float full = cascade switch { 0 => SwellDepth, 1 => ChopDepth, _ => RippleDepth };
         float t = Math.Clamp(shore.WaveDepth / full, 0f, 1f);
         float lee = cascade switch { 0 => LeeCalm.X, 1 => LeeCalm.Y, _ => LeeCalm.Z };
-        return t * t * (3f - 2f * t) * (LakeWaves + (1f - LakeWaves) * shore.Open) * (1f - shore.Shelter * lee);
+        float near = Math.Clamp((shore.Distance + ShoreWavesLand) / MathF.Max(ShoreWavesLand, 1e-6f), 0f, 1f);
+        float strength = MathF.Max(t * t * (3f - 2f * t), ShoreWaves * near * near * (3f - 2f * near));
+        return strength * (LakeWaves + (1f - LakeWaves) * shore.Open) * (1f - shore.Shelter * lee);
     }
 
     /// <summary>Depth and openness at world xz, filtered like the shader's linear, clamped texture.</summary>

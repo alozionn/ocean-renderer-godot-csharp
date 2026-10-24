@@ -50,9 +50,10 @@ ShoreSample shore_at(vec2 xz) {
 }
 
 // Per-cascade wave strength (swell, chop, ripples). Long waves feel the bottom first; enclosed water keeps only a
-// fraction of every cascade; the lee of a body loses most of its swell and chop.
+// fraction of every cascade; the lee of a body loses most of its swell and chop. Near the waterline (and a little inland)
+// every cascade keeps at least shore_waves, so the real waterline moves with the waves.
 vec3 shore_calm(ShoreSample s) {
 	vec3 full = vec3(shallow_swell_depth, shallow_chop_depth, shallow_ripple_depth);
-	vec3 a = smoothstep(vec3(0.0), full, vec3(s.wave_depth));
+	vec3 a = max(smoothstep(vec3(0.0), full, vec3(s.wave_depth)), vec3(shore_waves * smoothstep(-shore_waves_land, 0.0, s.distance)));
 	return a * mix(lake_waves, 1.0, s.open) * (1.0 - s.shelter * LEE_CALM);
 }
