@@ -55,6 +55,9 @@ public partial class DevHarness : Node
         if (_args.ContainsKey("panels")) ShowPanels(GetTree().Root);
         if (_args.ContainsKey("hide-panels")) HidePanels(GetTree().Root);
         if (_args.ContainsKey("no-bodies")) _ocean.ClearBodies(); // props stay, without their shore effects (A/B)
+        if (_args.TryGetValue("hide", out var hidden)) // --hide=Island,WaterProps: hides demo nodes by name (cost A/B)
+            foreach (var name in hidden.Split(','))
+                if (GetTree().Root.FindChild(name, true, false) is Node3D n) n.Visible = false;
         _ = RunAsync();
     }
 

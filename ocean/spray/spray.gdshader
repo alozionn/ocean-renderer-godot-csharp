@@ -32,7 +32,7 @@ uniform float shallow_ripple_depth = 0.6;
 uniform float lake_waves = 0.15;
 uniform float shore_waves = 0.5;
 uniform float shore_waves_land = 6.0;
-uniform float breaking_ratio = 1.3;
+uniform float breaking_ratio = 0.9;
 
 #include "../surface/include/shore.gdshaderinc"
 

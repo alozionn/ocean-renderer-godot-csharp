@@ -90,7 +90,7 @@ public partial class Ocean
             ShaderFloat("shallow_ripple_depth"), ShaderFloat("lake_waves"), ShaderFloat("shore_waves"), ShaderFloat("shore_waves_land"));
         // The foam field calms its whitecaps and finds breaking with the same uniforms (foam_field.glsl, Shore block).
         _shore?.SetFoam(new Vector4(_waves.Calm.SwellDepth, _waves.Calm.ChopDepth, _waves.Calm.RippleDepth, _waves.Calm.LakeWaves),
-            new Vector4(ShaderFloat("shore_waves"), ShaderFloat("shore_waves_land"), 0f, 0f),
+            new Vector4(ShaderFloat("shore_waves"), ShaderFloat("shore_waves_land"), ShaderFloat("wash_depth"), ShaderFloat("wash_strength")),
             ShaderFloat("breaking_ratio"), ShaderFloat("breaking_strength"));
     }
 

@@ -522,6 +522,8 @@ Upload: atlas RGBA32F (pages in rows of ⌈√n⌉), index R32F (page + 1, `texe
 
 **Breaking** (`foam_field.glsl` `shore_foam`, shore data and settings in uniform set 1 via `Surface.ShoreTextures`): `smoothstep(0.15, 0.6, breaking_ratio 1.3 · 2 · max(h_calmed, 0) − depth) · wet · open · breaking_strength 0.6`, injected as `max(jacobian_foam · chop_calm, breaking)`; texels deeper than 8 m skip it. The field's decay and spread shape it and its fresh foam throws spray. Lagoon and sediment tints use the terrain's depth only (no sand ring round bodies) and are not cut at depth 0 or by `open`, which followed the terrain cells as stairs.
 
+**Wash** (`foam_field.glsl`): `level = wave_depth + h_calmed`; `wash = (1 − smoothstep(0, wash_depth 1.6, level)) · step(0, level) · mix(0.5, 1, smoothstep(−0.2, 0.3, h)) · (1 − lake) · wash_strength 1.0`, injected with breaking. It fills the clear band that breaking alone left between the surf and the waterline; at 0.4–0.8 m it only reached the edge on gentle stretches. `breaking_ratio` 1.3 → 0.9 keeps the breaking band shorter.
+
 **Cost:** two extra matrix multiplies per water pixel for the edge; the foam compute reads the shore data per texel and the displacements only in water shallower than 8 m. `--bench`: close rock 1.0 ms, beach 0.74 ms, hero 0.88 ms.
 
 ---

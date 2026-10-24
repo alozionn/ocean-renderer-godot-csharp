@@ -123,9 +123,13 @@ uniform float edge_foam_strength : hint_range(0.0, 2.0, 0.01) = 0.9;
 // Edge foam on the terrain's own shoreline (0-1). Off by default: there the breaking foam already reaches the beach, and a
 // thin line at the very edge, apart from it, looked wrong. Objects in deeper water (rocks, piles, hulls) always get it.
 uniform float edge_foam_terrain : hint_range(0.0, 1.0, 0.01) = 0.0;
-// Breaking: water shallower than breaking_ratio x the wave height injects foam into the foam field.
-uniform float breaking_ratio : hint_range(0.0, 3.0, 0.01) = 1.3;
+// Breaking: water shallower than breaking_ratio x the wave height injects foam into the foam field. Lower: a shorter band.
+uniform float breaking_ratio : hint_range(0.0, 3.0, 0.01) = 0.9;
 uniform float breaking_strength : hint_range(0.0, 2.0, 0.01) = 0.6;
+// Wash: foam in the thin film at the moving water's edge on beaches (water under wash_depth metres, counting the waves),
+// half as strong in the troughs, full while the water runs up. It joins the breaking foam to the edge and follows it up the sand and back.
+uniform float wash_depth : hint_range(0.0, 4.0, 0.01) = 1.6;
+uniform float wash_strength : hint_range(0.0, 2.0, 0.01) = 1.0;
 uniform vec3 lagoon_color : source_color = vec3(0.04, 0.55, 0.55);
 uniform float lagoon_depth : hint_range(0.1, 30.0, 0.1) = 6.0;
 uniform float lagoon_strength : hint_range(0.0, 1.0, 0.01) = 0.6;

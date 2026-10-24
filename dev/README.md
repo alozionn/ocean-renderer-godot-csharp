@@ -27,6 +27,7 @@ Not shipped: `dotnet build -p:Ship=true` excludes this folder, and nothing outsi
 | `--foam-stats` | foam field numbers at 60 Hz and 120 Hz from the hero pose |
 | `--panels` | shows both parameter panels unfolded (for UI captures) |
 | `--shore=x,z[;x,z...]` | prints what the shore shader reads at world points (depth, distance, open, shelter), bodies folded in; combine with any mode |
+| `--hide=<name,...>` | hides demo nodes by name, e.g. `--hide=Island,WaterProps` (cost A/B) |
 | `--no-bodies` | unregisters every water body: the props stay but get only the depth-buffer contact foam (A/B) |
 | `--hide-panels` | hides both parameter panels (clean scene captures) |
 | `--prepare-assets` | one-off asset processing from `.scratch/downloads/` (see the asset READMEs) |

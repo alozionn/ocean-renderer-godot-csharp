@@ -25,7 +25,7 @@ layout(set = 1, binding = 3, std140) uniform Shore {
 	vec4 sea_floor_rect; // xy corner, zw 1 / size; z = 0: no sea floor
 	vec4 body_rect;      // xy corner, z page size (0: no bodies), w pages per atlas row
 	vec4 calm_depth;     // shallow swell, chop, ripple depth (m), lake waves
-	vec4 near_shore;     // x shore_waves (wave floor near the waterline), y its reach inland (m), zw unused
+	vec4 near_shore;     // x shore_waves (wave floor near the waterline), y its reach inland (m), z wash depth (m), w wash gain
 	vec4 breaking;       // x breaking ratio, y gain, z samples per page side, w 1 if any shore data
 } sh;
 
@@ -79,8 +79,8 @@ vec4 shore_at(vec2 xz, out float wave_depth) {
 	return s;
 }
 
-// x: foam the shore makes here this tick (0-1): crests breaking over shallow ground. Edge foam where the water meets
-// anything solid is drawn by the surface from the depth buffer, not injected here.
+// x: foam the shore makes here this tick (0-1): crests breaking over shallow ground, and the wash at the moving water's
+// edge on beaches. Edge foam where the water meets anything solid is drawn by the surface from the depth buffer.
 // y: how much of the open-sea (Jacobian) foam belongs here: the chop calm, so whitecaps do not form over sand.
 vec2 shore_foam(vec2 world) {
 	if (sh.breaking.w <= 0.0) return vec2(0.0, 1.0);
@@ -97,7 +97,12 @@ vec2 shore_foam(vec2 world) {
 	vec3 d2 = textureLod(displacement2, world / p.patch_size.z, p.lod.z).xyz;
 	float here = d0.y * calm.x + d1.y * calm.y + d2.y * calm.z;
 	float breaking = smoothstep(0.15, 0.6, sh.breaking.x * 2.0 * max(here, 0.0) - depth) * step(0.0, depth) * open * sh.breaking.y;
-	return vec2(clamp(breaking, 0.0, 1.0), calm.y);
+	// Wash: the thin film of water at the moving edge (the terrain's depth plus the wave height here, so it follows the
+	// water up the beach and back), stronger while the water is high, none in lakes. Joins the breaking foam to the edge.
+	float level = wave_depth + here;
+	float lake = (1.0 - open) * smoothstep(0.0, 1.0, wave_depth);
+	float wash = (1.0 - smoothstep(0.0, sh.near_shore.z, level)) * step(0.0, level) * mix(0.5, 1.0, smoothstep(-0.2, 0.3, here)) * (1.0 - lake) * sh.near_shore.w;
+	return vec2(clamp(max(breaking, wash), 0.0, 1.0), calm.y);
 }
 
 void main() {
