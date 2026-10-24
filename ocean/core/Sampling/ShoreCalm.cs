@@ -32,7 +32,10 @@ public readonly record struct ShoreCalm(float SwellDepth, float ChopDepth, float
         float lee = cascade switch { 0 => LeeCalm.X, 1 => LeeCalm.Y, _ => LeeCalm.Z };
         float near = Math.Clamp((shore.Distance + ShoreWavesLand) / MathF.Max(ShoreWavesLand, 1e-6f), 0f, 1f);
         float strength = MathF.Max(t * t * (3f - 2f * t), ShoreWaves * near * near * (3f - 2f * near));
-        return strength * (LakeWaves + (1f - LakeWaves) * shore.Open) * (1f - shore.Shelter * lee);
+        // Only enclosed water (not open sea, and wet) keeps LakeWaves; land near the coast keeps the floor.
+        float wet = Math.Clamp(shore.WaveDepth, 0f, 1f);
+        float lake = (1f - shore.Open) * wet * wet * (3f - 2f * wet);
+        return strength * (1f + (LakeWaves - 1f) * lake) * (1f - shore.Shelter * lee);
     }
 
     /// <summary>Depth and openness at world xz, filtered like the shader's linear, clamped texture.</summary>

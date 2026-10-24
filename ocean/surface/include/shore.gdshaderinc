@@ -55,5 +55,8 @@ ShoreSample shore_at(vec2 xz) {
 vec3 shore_calm(ShoreSample s) {
 	vec3 full = vec3(shallow_swell_depth, shallow_chop_depth, shallow_ripple_depth);
 	vec3 a = max(smoothstep(vec3(0.0), full, vec3(s.wave_depth)), vec3(shore_waves * smoothstep(-shore_waves_land, 0.0, s.distance)));
-	return a * mix(lake_waves, 1.0, s.open) * (1.0 - s.shelter * LEE_CALM);
+	// Only enclosed water (a lake: not open sea, and wet) keeps lake_waves. Land keeps the near-shore floor: "open" goes
+	// from 1 to 0 across each 4 m terrain cell at the coast, and scaling by it there drew the cells into the waterline.
+	float lake = (1.0 - s.open) * smoothstep(0.0, 1.0, s.wave_depth);
+	return a * mix(1.0, lake_waves, lake) * (1.0 - s.shelter * LEE_CALM);
 }

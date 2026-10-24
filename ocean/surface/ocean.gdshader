@@ -120,6 +120,9 @@ uniform float shore_waves_land : hint_range(0.0, 30.0, 0.5) = 6.0;
 // the moving waterline and is textured by the foam lace.
 uniform float edge_foam_width : hint_range(0.0, 5.0, 0.05) = 0.8;
 uniform float edge_foam_strength : hint_range(0.0, 2.0, 0.01) = 0.9;
+// Edge foam on the terrain's own shoreline (0-1). Off by default: there the breaking foam already reaches the beach, and a
+// thin line at the very edge, apart from it, looked wrong. Objects in deeper water (rocks, piles, hulls) always get it.
+uniform float edge_foam_terrain : hint_range(0.0, 1.0, 0.01) = 0.0;
 // Breaking: water shallower than breaking_ratio x the wave height injects foam into the foam field.
 uniform float breaking_ratio : hint_range(0.0, 3.0, 0.01) = 1.3;
 uniform float breaking_strength : hint_range(0.0, 2.0, 0.01) = 0.6;
@@ -217,7 +220,10 @@ void fragment() {
 	// Edge foam where the water meets anything solid, from the depth buffer: exact against what is drawn, nothing to
 	// register, and it moves with the waterline as the waves rise and fall. Breaking in the shallows comes from the foam
 	// field, which also calms its open-sea foam there.
-	float edge_foam = (1.0 - smoothstep(0.0, edge_foam_width, abs(above))) * solid * edge_foam_strength;
+	// Only for something solid under the water (a crest in front of a rock face above it is not contact). Something solid
+	// where the terrain says the water is deep is an object; where the terrain itself is that close, it is the beach.
+	float object = mix(edge_foam_terrain, 1.0, smoothstep(1.5, 4.0, sea.wave_depth - max(above, 0.0)));
+	float edge_foam = (1.0 - smoothstep(0.0, edge_foam_width, max(above, 0.0))) * step(-0.2, above) * solid * object * edge_foam_strength;
 	FoamSample foam = foam_composite(v_grid, grid_dx, grid_dy, dist, edge_foam, b > 0.0);
 	float milk = smoothstep(0.0, milk_range, foam.density) * milk_strength;
 
@@ -235,8 +241,10 @@ void fragment() {
 	scatter = mix(scatter, milk_color, milk);
 	// With a sea floor: turquoise over shallow ground (lagoon), sand stirred up where the open sea is shallow (sediment).
 	// Terrain depth only: a body's sloping foot must not paint a sand ring around it.
-	float lagoon = lagoon_strength * exp(-max(sea.wave_depth, 0.0) / lagoon_depth) * step(0.0, sea.wave_depth);
-	float sediment = sediment_strength * (1.0 - smoothstep(0.0, sediment_depth, sea.wave_depth)) * sea.open * step(0.0, sea.wave_depth);
+	float lagoon = lagoon_strength * exp(-max(sea.wave_depth, 0.0) / lagoon_depth);
+	// No cut at the coastline (depth 0 or "open sea"): those follow the 4 m terrain cells and drew stairs. Over land the
+	// water is hidden anyway.
+	float sediment = sediment_strength * (1.0 - smoothstep(0.0, sediment_depth, sea.wave_depth));
 	scatter = mix(mix(scatter, lagoon_color, lagoon), sediment_color, sediment);
 	vec3 transmittance = pow(water_transmittance, vec3(thickness / absorption_distance)) * (1.0 - milk) * (1.0 - 0.6 * sediment);
 	vec3 lagoon_tint = mix(vec3(1.0), lagoon_color * 2.0, lagoon);

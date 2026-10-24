@@ -89,7 +89,7 @@ vec2 shore_foam(vec2 world) {
 	float depth = s.x, distance = s.y, open = s.z, shelter = s.w;
 	// shore_calm in shore.gdshaderinc, with the near-shore floor (near_shore.x shore_waves, near_shore.y its reach inland).
 	vec3 calm = max(smoothstep(vec3(0.0), sh.calm_depth.xyz, vec3(wave_depth)), vec3(sh.near_shore.x * smoothstep(-sh.near_shore.y, 0.0, distance)))
-		* mix(sh.calm_depth.w, 1.0, open) * (1.0 - shelter * vec3(1.0, 0.8, 0.3));
+		* mix(1.0, sh.calm_depth.w, (1.0 - open) * smoothstep(0.0, 1.0, wave_depth)) * (1.0 - shelter * vec3(1.0, 0.8, 0.3));
 	// Too deep to break: nothing more to do (most texels).
 	if (depth > 8.0) return vec2(0.0, calm.y);
 	vec3 d0 = textureLod(displacement0, world / p.patch_size.x, p.lod.x).xyz;

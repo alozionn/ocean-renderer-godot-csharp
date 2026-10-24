@@ -246,7 +246,8 @@ public class WaveSamplerTests
             foreach (float open in new[] { 0f, 0.4f, 1f })
                 for (int c = 0; c < 3; c++)
                 {
-                    float expected = Smoothstep(full[c], depth) * (0.15f + (1 - 0.15f) * open); // smoothstep * mix(lake_waves, 1, open)
+                    float lake = (1 - open) * Smoothstep(1f, depth); // only wet enclosed water is a lake
+                    float expected = Smoothstep(full[c], depth) * (1 + (0.15f - 1) * lake); // smoothstep * mix(1, lake_waves, lake)
                     await Assert.That(calm.Factor((depth, open), c)).IsEqualTo(expected).Within(1e-6f);
                 }
         await Assert.That(calm.Factor(ShoreCalm.Deep, 0)).IsEqualTo(1f);

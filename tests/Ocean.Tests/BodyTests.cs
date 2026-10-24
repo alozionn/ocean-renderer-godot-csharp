@@ -93,6 +93,7 @@ public class BodyTests
         var floor = SeaFloor.FromHeights(Enumerable.Repeat(-12f, 16 * 16).ToArray(), 16, 16, 8f, new Vector2(-60, -60));
         var reef = WaterBody.Circle(Vector2.Zero, 4f, top: -1f);
         reef.Skirt = 3f;
+        reef.Lee = 0f; // depth only here; the lee is tested on its own
         var p = BodyLayer.Lookup(floor, BodyLayer.Build(floor, new[] { reef }, East), Vector2.Zero);
         await Assert.That(p.Depth).IsEqualTo(1f).Within(1e-3f);
         await Assert.That(p.WaveDepth).IsEqualTo(12f).Within(1e-3f);
@@ -185,6 +186,18 @@ public class BodyTests
         var p = new ShorePoint(1e4f, 7f, 1f, behind);
         await Assert.That(calm.Factor(p, 0)).IsEqualTo(1f - behind).Within(1e-5f);
         await Assert.That(calm.Factor(p, 2)).IsEqualTo(1f - 0.3f * behind).Within(1e-5f);
+    }
+
+    [Test]
+    public async Task LeeHasNoStepAtTheBodyEdge()
+    {
+        // A lee forced to 0 inside the footprint stepped to 0.6 just outside: the swell halved over a metre and the mesh
+        // stood up into a wall of water on the rock's sheltered side.
+        var rock = WaterBody.Circle(Vector2.Zero, 5f, top: 10f);
+        var layer = BodyLayer.Build(null, new[] { rock }, East)!;
+        float inside = BodyLayer.Lookup(null, layer, new Vector2(4.8f, 0)).Shelter;
+        float outside = BodyLayer.Lookup(null, layer, new Vector2(5.3f, 0)).Shelter;
+        await Assert.That(MathF.Abs(outside - inside)).IsLessThan(0.05f);
     }
 
     [Test]

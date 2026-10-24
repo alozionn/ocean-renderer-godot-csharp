@@ -253,8 +253,7 @@ public sealed class BodyLayer
                 // The shadow narrows downwind as the waves bend back into it, and fades in alongside the body.
                 float width = across * (1f - 0.5f * behind / length);
                 float lee = b.Lee * (1f - Smoothstep(0.6f * width, 1.2f * width + 0.5f, v))
-                    * Math.Clamp((u + along) / (2f * along + 1e-3f), 0f, 1f) * (1f - Smoothstep(0f, length, behind))
-                    * Smoothstep(0f, 1f, s);
+                    * Math.Clamp((u + along) / (2f * along + 1e-3f), 0f, 1f) * (1f - Smoothstep(0f, length, behind));
                 shelter = MathF.Max(shelter, lee);
             }
         }
