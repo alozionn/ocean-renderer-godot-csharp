@@ -179,7 +179,6 @@ public partial class Ocean : Node3D
                 _sprayMaterial?.SetShaderParameter(SurfaceUniforms.CameraXz, new Vector2(p.X, p.Z));
             }
         }
-        if (_cascades.Length > 0) SetShared(SurfaceUniforms.ShoreTime, (float)_cascades[0].Time);
         FoldBodies();
         _sprayMaterial?.SetShaderParameter(SurfaceUniforms.SeaLevel, GlobalPosition.Y);
     }

@@ -8,7 +8,7 @@ namespace Ocean.Core.Bodies;
 /// Something standing or floating in the water: a rock, a post, a pontoon, a hull. Its footprint at the waterline is a
 /// rounded rectangle in world xz (a circle when length = beam = 2 × rounding), plus how high it stands, how deep it
 /// reaches and how fast it moves. The ocean keeps one list of these (Ocean.AddBody) and every water effect reads it:
-/// stationary bodies fold into the shore data (contact foam where crests hit them, breaking, calm lee, swash), the same
+/// stationary bodies fold into the shore data (contact foam where crests hit them, breaking, calm lee), the same
 /// path islands take.
 /// </summary>
 public sealed class WaterBody
@@ -33,7 +33,7 @@ public sealed class WaterBody
     /// <summary>Width (m) of the slope around its foot: the sea bed rises over it to the waterline (rock debris, a sand
     /// bank), so swell calms and breaks there. 0: sheer sides. Only for grounded bodies.</summary>
     public float Skirt { get; set; }
-    /// <summary>How far from its waterline (m) it counts as the nearest shore (contact foam strip, swash). 0: from its size (<see cref="EffectiveReach"/>).</summary>
+    /// <summary>How far from its waterline (m) it counts as the nearest shore (contact foam strip). 0: from its size (<see cref="EffectiveReach"/>).</summary>
     public float Reach { get; set; }
     /// <summary>How much it shelters the water downwind of it (0–1): swell and chop calm there.</summary>
     public float Lee { get; set; } = 0.6f;

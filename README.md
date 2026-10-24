@@ -89,7 +89,6 @@ It is uploaded as one small texture and changes how the water behaves over it, a
 |---|---|
 | **Quiet water** | each cascade's waves fade out as the water over the *terrain* gets shallow: swell first (`shallow_swell_depth` 16 m), then chop (5 m), then ripples (0.6 m). Over land there are no waves, so water never washes through beaches. Lakes keep `lake_waves` (15 %) of every cascade. The foam field's open-sea (whitecap) foam is calmed with the chop. Bodies do not calm waves this way: a rock or reef is too small to calm a swell, it breaks it. |
 | **Shore foam** | injected into the foam field, not drawn: a strip `contact_width` (2.5 m) wide along every waterline, coast or [body](#bodies-in-the-water), foams only when a crest arrives (full at `contact_crest` 0.8 m of open-sea height, none in calm water, gain `contact_foam` 1.5), and water shallower than `breaking_ratio` (1.3) × the local wave height breaks (`breaking_strength` 0.6): sandbars, reefs, submerged bodies, a rock's sloping foot. The field's decay and spread then shape it like any other foam, so it comes and goes with the waves, drifts, and has no fixed width; its fresh foam also throws spray. Nothing is drawn statically: there is no depth-buffer contact line any more, so objects that are neither terrain nor registered bodies get no foam (register them as bodies). |
-| **Swash** | the water near the waterline runs up the beach and drains back: the surface within `swash_width` (6 m) lifts by up to `swash_height` (0.3 m) once every `swash_period` (7 s), each stretch of coast (~`swash_patch` 30 m) on its own clock and with its own strength per run-up, so the wet edge climbs a gentle beach by metres and a steep one by less. Only where the water at the waterline is shallow: beaches and grounded bodies (a rock's foot), not hulls or sheer walls; less in a body's lee. The CPU water sampler leaves it out. |
 | **Colour** | a turquoise lagoon tint over shallow ground (`lagoon_color`, `lagoon_depth` 6 m) and stirred-up sand where the open sea is shallower than `sediment_depth` (3 m, `sediment_color`). |
 
 Outside the sea floor's rectangle, and with no sea floor at all, all of this is off and the ocean looks exactly as it
@@ -101,8 +100,9 @@ energy at wave vectors along the wind and each component is `cos(k·p + ωt)`.
 
 Rocks, posts, pontoons and hulls register a footprint with the ocean, and every water effect reads that one list.
 Stationary bodies fold into the shore data the same way islands do, so a sea stack gets foam when crests hit it,
-breaks on its sloping foot, a calm lee and swash; a post gets a small collar; a moored hull foam along its sides and a
-lee while the waves keep running under it.
+breaks on its sloping foot and a calm lee; a post gets a small collar; a moored hull foam along its sides and a
+lee while the waves keep running under it. Waves are never cut inside a footprint: the body hides the water inside
+it, so the waterline on a rock rises and falls with the waves.
 
 ```csharp
 using Ocean.Core.Bodies;

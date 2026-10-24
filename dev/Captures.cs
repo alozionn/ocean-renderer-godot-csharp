@@ -22,10 +22,10 @@ internal static class Captures
         ["close_down"] = new[] { 0f, 7, 0, -62, 40 },
         ["shore"] = new[] { 120f, 14, -300, -12, -20 },
         ["overview"] = new[] { 0f, 52, -40, -33, -24 }, // the demo's default camera
-        ["coast"] = new[] { 150f, 120, -230, -31.5f, -12.8f }, // the south coast from above: shore foam and swash
+        ["coast"] = new[] { 150f, 120, -230, -31.5f, -12.8f }, // the south coast from above: shore foam
         ["windward"] = new[] { 610f, 30, -600, -35, 90 }, // the east coast, facing the swell: more breaking
         ["lee_coast"] = new[] { -175f, 30, -700, -35, -90 }, // the west coast, in the lee: less
-        ["beach"] = new[] { 185f, 5, -345, -14, 0 }, // low over the south beach: breaking, swash
+        ["beach"] = new[] { 185f, 5, -345, -14, 0 }, // low over the south beach: breaking at the waterline
         ["props"] = new[] { 150f, 25, -290, -28, 12.5f }, // sea stack, submerged boulder, pontoon on piles
         ["moored"] = new[] { 85f, 18, -115, -22.7f, 35.5f }, // the demo boat lying still
     };

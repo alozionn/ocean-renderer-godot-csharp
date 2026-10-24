@@ -1,8 +1,7 @@
 // Shore: what the ocean knows about the ground under it (Ocean.SetSeaFloor) and the stationary bodies in it
-// (Ocean.AddBody), and the behaviour built on it: waves calm in shallow water and in the lee of bodies, enclosed lakes
-// stay quiet, and the water runs up the beach and drains back (swash). Shore foam is not drawn here: the foam field
-// injects it where crests meet waterlines or break in the shallows (foam_field.glsl). Without a sea floor or bodies
-// everything here reports deep open sea, so the ocean looks as it did.
+// (Ocean.AddBody), and the wave calm built on it: waves calm in shallow water and in the lee of bodies, enclosed lakes
+// stay quiet. Shore foam is not drawn here: the foam field injects it where crests meet waterlines or break in the
+// shallows (foam_field.glsl). Without a sea floor or bodies everything here reports deep open sea.
 // Expects the shore uniforms declared by the including shader (ocean.gdshader declares them in its "shore" group).
 
 uniform sampler2D sea_floor : filter_linear, repeat_disable; // r: water depth (m), g: signed distance to shore (m), b: open sea
@@ -12,7 +11,6 @@ uniform sampler2D body_pages : filter_linear, repeat_disable; // atlas: rgba = d
 uniform sampler2D body_index : filter_nearest, repeat_disable; // r: page number + 1 per index cell, 0: no page
 uniform vec4 body_rect = vec4(0.0); // xy: world xz of index cell (0, 0)'s corner; z: page size (m), 0: no bodies; w: pages per atlas row
 uniform float body_samples = 65.0;  // samples per page side
-uniform float shore_time = 0.0;           // simulation time (s), so swash restarts with the waves
 
 const vec3 LEE_CALM = vec3(1.0, 0.8, 0.3); // share of each cascade a body's lee takes (Core.Sampling.ShoreCalm)
 
@@ -57,36 +55,4 @@ vec3 shore_calm(ShoreSample s) {
 	vec3 full = vec3(shallow_swell_depth, shallow_chop_depth, shallow_ripple_depth);
 	vec3 a = smoothstep(vec3(0.0), full, vec3(s.wave_depth));
 	return a * mix(lake_waves, 1.0, s.open) * (1.0 - s.shelter * LEE_CALM);
-}
-
-float shore_hash(vec2 p) {
-	p = fract(p * vec2(0.1031, 0.1030));
-	p += dot(p, p.yx + 33.33);
-	return fract((p.x + p.y) * p.x);
-}
-
-float shore_noise(vec2 p) {
-	vec2 i = floor(p);
-	vec2 f = p - i;
-	f = f * f * (3.0 - 2.0 * f);
-	return mix(mix(shore_hash(i), shore_hash(i + vec2(1.0, 0.0)), f.x), mix(shore_hash(i + vec2(0.0, 1.0)), shore_hash(i + vec2(1.0, 1.0)), f.x), f.y);
-}
-
-// Swash: the water runs up the beach (or a rock's foot) and drains back. Each stretch of coast runs on its own clock
-// (slow noise in the phase) and each run-up has its own strength, so the shore ebbs and flows unevenly. Returns the
-// run-up (0-1) that lifts the surface near the waterline. Only over beaches and grounded bodies: water deeper than ~3 m
-// at the waterline (a floating hull, a sheer wall) gets none; a body's lee gets less.
-float swash(ShoreSample s, vec2 xz) {
-	if (swash_height <= 0.0 || s.distance > swash_width || s.distance < -2.0 * swash_width) return 0.0;
-	// Land, or open sea; not a lake. Shallow at the waterline.
-	float where = max(s.open, step(s.depth, 0.0)) * (1.0 - smoothstep(1.0, 3.0, s.depth))
-		* (1.0 - smoothstep(0.0, swash_width, s.distance)) * smoothstep(-2.0 * swash_width, -swash_width, s.distance)
-		* (1.0 - s.shelter);
-	if (where <= 0.0) return 0.0;
-	float x = shore_time / swash_period + 2.0 * shore_noise(xz / swash_patch) + 0.6 * shore_noise(xz * 0.07 + 11.0);
-	float cycle = floor(x), phase = fract(x);
-	// A new strength each cycle, switched while the water is down (phase 0).
-	float strength = mix(0.2, 1.0, shore_noise(xz / swash_patch + vec2(cycle * 7.31, cycle * 3.17)));
-	float up = smoothstep(0.0, 0.18, phase) * (1.0 - smoothstep(0.25, 1.0, phase));
-	return up * strength * where;
 }

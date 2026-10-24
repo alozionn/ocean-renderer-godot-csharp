@@ -61,7 +61,7 @@ public partial class DemoRoot : Node
             if (island.WorldHeights.Length > 0) PushSeaFloor();
         }
 
-        // Props in the water and the boat are bodies: the ocean gives them contact foam, breaking, lee and swash.
+        // Props in the water and the boat are bodies: the ocean gives them contact foam, breaking and a lee.
         if (Ocean != null)
         {
             var props = new WaterProps { Name = "WaterProps", Water = Ocean };

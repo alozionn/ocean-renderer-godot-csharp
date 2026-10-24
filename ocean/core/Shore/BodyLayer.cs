@@ -8,7 +8,7 @@ namespace Ocean.Core.Shore;
 
 /// <summary>
 /// What the shore shader reads at one point: the sea floor texture's channels plus the lee of bodies. Depth is the
-/// water over the ground or a body (breaking, contact foam, swash); WaveDepth is the terrain's alone, and calms the
+/// water over the ground or a body (breaking, contact foam); WaveDepth is the terrain's alone, and calms the
 /// waves: a rock or a reef is too small to calm a swell, it breaks it.
 /// </summary>
 public readonly record struct ShorePoint(float Depth, float Distance, float Open, float Shelter)
@@ -228,8 +228,9 @@ public sealed class BodyLayer
             {
                 if (grounded)
                 {
+                    // Land for breaking and foam, but the waves keep running: the body hides the water inside it, and cutting
+                    // them here tore the mesh into a wall around it.
                     depth = MathF.Min(depth, -b.Top);
-                    if (b.Top > 0f) open = 0f;
                 }
             }
             else if (grounded && b.Skirt > 0f)

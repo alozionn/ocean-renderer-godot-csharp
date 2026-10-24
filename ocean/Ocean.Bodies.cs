@@ -8,8 +8,8 @@ using Ocean.Surface;
 namespace Ocean;
 
 // Bodies in the water: one list every water effect reads. Stationary bodies fold into the shore data (BodyLayer: fine
-// pages over the sea floor), so a rock, a post or a moored hull gets the islands' contact foam, breaking, calm lee and
-// swash. Rebuilt at most once a frame, only when the stationary set or the swell direction changed; the terrain's sea
+// pages over the sea floor), so a rock, a post or a moored hull gets the islands' contact foam, breaking and calm
+// lee. Rebuilt at most once a frame, only when the stationary set or the swell direction changed; the terrain's sea
 // floor is sampled, never rebuilt.
 public partial class Ocean
 {

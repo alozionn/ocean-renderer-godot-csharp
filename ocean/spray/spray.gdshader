@@ -30,10 +30,6 @@ uniform float shallow_swell_depth = 16.0;
 uniform float shallow_chop_depth = 5.0;
 uniform float shallow_ripple_depth = 0.6;
 uniform float lake_waves = 0.15;
-uniform float swash_height = 0.3;
-uniform float swash_width = 6.0;
-uniform float swash_period = 7.0;
-uniform float swash_patch = 30.0;
 uniform float breaking_ratio = 1.3;
 
 #include "../surface/include/shore.gdshaderinc"

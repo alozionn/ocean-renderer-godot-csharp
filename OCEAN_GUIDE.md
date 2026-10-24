@@ -25,9 +25,10 @@ What building and refining this ocean taught, each with where it is specified. E
 - **Displacement is mip-filtered to each vertex's spacing:** point-sampled, the outer rings alias and the far sea swims as the camera moves, with fake crests that get no foam (8.2, 8.3, 10).
 - **Distant crests keep foam:** `foam_fade_range` 400 m; 220 m left crests beyond ~300 m bare (9.5).
 - **Shore and object foam is injected, never drawn from a distance:** a band or surf lines from the distance field read as rings (a target round small islands and rocks) and the foam texture showed its tiling as a "square circle". Inject it into the foam field where crests reach waterlines or break, and let decay and spread shape it (Sea of Thieves; 10.1, `docs/research/water-meets-objects-and-shores.md`).
-- **Bodies break waves, they do not calm them:** calming by a body-lowered depth left flat discs in a rough sea; calm uses the terrain's depth only (10.1).
+- **Bodies break waves, they do not calm them:** calming by a body-lowered depth left flat discs in a rough sea, and cutting the waves inside a footprint tore the mesh into a wall around it. Calm uses the terrain's depth only and never changes at a body's edge (10.1, tested).
+- **No geometric swash fakes:** a timer-driven lift of the water near the waterline, shaped by the 4 m sea floor, made the shoreline blocky. A run-up should come from the actual incoming waves (research doc, topic 1e).
 - **The swell travels against the wind vector:** `cos(k·p + ωt)` with k along the wind moves crests along −k; windward and lee were swapped until checked (10.1, tested).
-- **Bodies fold into the shore data, not a second foam path:** islands and props then share contact foam, breaking, lee and swash, and the CPU sampler agrees (10.1).
+- **Bodies fold into the shore data, not a second foam path:** islands and props then share contact foam, breaking and lee, and the CPU sampler agrees (10.1).
 - **Verify sky sun positions by capture:** automatic measurement from the image was up to 13° off (11).
 
 **Process**
@@ -500,7 +501,7 @@ These are a safety net; the captures decide.
 
 **Gate M2:** waves, glint, sky reflection and colour look right in the captures without foam; `low_away` has no black facets; FPS targets met.
 
-### 10.1 Shore: sea floor, bodies, shore foam and swash (`include/shore.gdshaderinc`, `foam_field.glsl`)
+### 10.1 Shore: sea floor, bodies and shore foam (`include/shore.gdshaderinc`, `foam_field.glsl`)
 
 **One shore sample** (`shore_at(xz)`, CPU copy `BodyLayer.Lookup`): depth over the ground or a body (m, negative on land and in bodies), signed distance to the nearest open-sea shoreline or body waterline (m, + at sea), open (1 sea, 0 land or lake), shelter (0–1, lee of a body), and wave depth (the terrain's depth alone). Read once per vertex and once per fragment (sea floor tap, plus an index `texelFetch` and a page tap near bodies), and once per foam-field texel. Deep open sea outside all data.
 
@@ -509,7 +510,7 @@ These are a safety net; the captures decide.
 **Bodies** (`WaterBody`, `Ocean.AddBody`): one list for every water effect. Footprint = rounded rectangle at the waterline (`Position`, `Heading` = Godot yaw so the length axis is `(cos h, −sin h)`, `Length`, `Beam`, `Rounding`), `Top` (above sea level; < 0 submerged), `Draft` (∞ grounded), `Skirt`, `Reach` (default `clamp(min(L, B)/3 + skirt, 0.6, 24)`), `Lee` 0.6, `LeeLength` 3, `Velocity`, `Stationary`. Only stationary ones fold; moving ones stay in the list for boat effects built on it later (hull cutout, foam trail injection, Kelvin wake, bow wave).
 
 **Fold** (`BodyLayer.Build(terrain, bodies, swellDir)`, 16 m pages × 64 cells = 0.25 m, edges shared): pages cover each body's footprint grown by `max(1.5·reach + 1, skirt)` plus its lee box downwind, on a world-aligned 16 m lattice. Each sample starts from the terrain's bilinear sample and folds every body whose cover contains it:
-- depth: grounded (terrain depth ≤ draft) inside → `min(depth, −top)`, open 0 if top > 0; grounded with a skirt outside → `min(depth, terrain_depth · min(s / skirt, 1))`; floating inside → unchanged (waves run under a moored hull).
+- depth: grounded (terrain depth ≤ draft) inside → `min(depth, −top)` (open stays as the terrain's: the waves keep running inside the footprint, hidden by the body; cutting them there stretched the mesh into a wall of water around it); grounded with a skirt outside → `min(depth, terrain_depth · min(s / skirt, 1))`; floating inside → unchanged (waves run under a moored hull).
 - distance (bodies with top > 0 only; a submerged body has no waterline, so no contact ring, only breaking): `min(d, s + (d_terrain − s) · smoothstep(reach, 1.5·reach + 1, s))`: the body's signed distance near it, exactly the terrain's beyond the blend, so pages join the coarse texture without a seam (tested).
 - shelter: `max` of each body's lee: with u along the swell from the centre, v across, half depth a, half width w, length L = LeeLength · 2w, behind = max(u − a, 0): `Lee · (1 − smoothstep(0.6w', 1.2w' + 0.5, v)) · saturate((u + a)/2a) · (1 − smoothstep(0, L, behind)) · smoothstep(0, 1, s)`, w' = w (1 − behind / 2L). Zero inside its own footprint, so a moored hull's own lee never calms the water it samples.
 Upload: atlas RGBA32F (pages in rows of ⌈√n⌉), index R32F (page + 1, `texelFetch`), `body_rect` (corner xz, page size, pages per row), `body_samples`. Rebuilt in `_Process` at most once a frame when `UpdateBodies`/`Add`/`Remove`/`SetSeaFloor`/the swell direction changed **and** the hash of the stationary bodies differs.
@@ -520,7 +521,6 @@ Upload: atlas RGBA32F (pages in rows of ⌈√n⌉), index R32F (page + 1, `texe
 
 **Shore foam** (`foam_field.glsl` `shore_foam`, settings in a uniform block, set 1, from the surface's shore uniforms via `Surface.ShoreTextures`): injected into the foam field like whitecaps, never drawn as a band. Per texel: contact = `(1 − smoothstep(0, contact_width 2.5, d)) · step(−0.5, d) · (1 − shelter) · smoothstep(0, contact_crest 0.8, h0 + h1) · contact_foam 1.5`, with h0 + h1 the un-calmed swell and chop height there (the wave arriving); breaking = `smoothstep(0.15, 0.6, breaking_ratio 1.3 · 2 · max(h_calmed, 0) − depth) · wet · open · breaking_strength 0.6`; inject `max(jacobian_foam · chop_calm, max(contact, breaking))`. Texels far from any waterline in water deeper than 8 m skip the displacement taps. The field's decay, spread and freshness then make the foam come and go with crests, drift and break up, and throw spray. The surface no longer scales the field by the chop calm (the compute does it for the Jacobian part only). Removed: the distance band (`shore_band_*`), surf lines (`surf_*`), drawn breaking and uprush foam, the depth-buffer contact line (`shore_foam_distance`) and a calm-water baseline in the contact injection: all of them were static foam that did not follow the waves. A band and surf lines from a distance field read as rings around every small island and object, and the foam texture on a constant-width band showed its tiling as a "square circle" around round bodies.
 
-**Swash** (`swash`): for |d| within the swash band (seaward to `swash_width` 6 m, landward to 2× it, fading over the second half), not in lakes, only where depth < 1–3 m (beaches, grounded bodies; not hulls), × (1 − shelter): x = t / `swash_period` 7 s + 2·noise(xz / `swash_patch` 30) + 0.6·noise(xz·0.07); cycle = floor(x), p = fract(x); run-up `smoothstep(0, 0.18, p) · (1 − smoothstep(0.25, 1, p))` × `mix(0.2, 1, noise(xz / patch + cycle·(7.31, 3.17)))` (a new strength each cycle, switched at p = 0) lifts `VERTEX.y` by up to `swash_height` 0.3 m, tapering seaward. The land side of the mesh lies under the terrain, so lifting it moves the wet edge up the beach. `v_height` (crest scatter) excludes the lift. The CPU sampler ignores swash.
 
 **Cost:** the foam field compute reads the shore data (2–3 taps) per texel and the displacements near waterlines; the surface lost the band, surf lines, facing tap and breaking. `--bench` at the rock, windward and hero poses: 0.01–0.04 ms per frame faster than the band-and-surf version.
 
@@ -607,7 +607,7 @@ Look at the full-resolution captures, not only the contact sheet: a downscaled s
 | coast | 150,120,−230,−31.5,−12.8 | the south coast from above: surf in broken sets, no rings |
 | windward | 610,30,−600,−35,90 | the east coast, facing the swell: most surf |
 | lee_coast | −175,30,−700,−35,−90 | the west coast, in the lee: little surf |
-| beach | 185,5,−345,−14,0 | low over the south beach: fronts arriving, swash |
+| beach | 185,5,−345,−14,0 | low over the south beach: breaking at the waterline |
 | props | 150,25,−290,−28,12.5 | sea stack (waterline, foot, lee), pontoon and piles (collars); A/B with `--no-bodies` |
 | moored | 85,18,−115,−22.7,35.5 | the boat lying still: capsule waterline, waves still under it |
 | overview | 0,52,−40,−33,−24 | the demo's default camera (breeze): crest foam, far waves calm and stable |

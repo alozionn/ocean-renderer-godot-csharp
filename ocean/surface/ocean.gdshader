@@ -119,12 +119,6 @@ uniform float contact_foam : hint_range(0.0, 2.0, 0.01) = 1.5;
 uniform float contact_crest : hint_range(0.05, 5.0, 0.05) = 0.8;
 uniform float breaking_ratio : hint_range(0.0, 3.0, 0.01) = 1.3;
 uniform float breaking_strength : hint_range(0.0, 2.0, 0.01) = 0.6;
-// Swash: the water near the waterline lifts by up to swash_height, tapering over swash_width seaward, once every
-// swash_period seconds, each stretch of coast (~swash_patch metres) on its own clock.
-uniform float swash_height : hint_range(0.0, 2.0, 0.01) = 0.3;
-uniform float swash_width : hint_range(0.5, 30.0, 0.5) = 6.0;
-uniform float swash_period : hint_range(1.0, 30.0, 0.1) = 7.0;
-uniform float swash_patch : hint_range(5.0, 200.0, 1.0) = 30.0;
 uniform vec3 lagoon_color : source_color = vec3(0.04, 0.55, 0.55);
 uniform float lagoon_depth : hint_range(0.1, 30.0, 0.1) = 6.0;
 uniform float lagoon_strength : hint_range(0.0, 1.0, 0.01) = 0.6;
@@ -162,7 +156,6 @@ void vertex() {
 	vec3 calm = shore_calm(sea);
 	vec3 d = displacement_at(v_grid, length(VERTEX.xz - CAMERA_POSITION_WORLD.xz), spacing, calm);
 	VERTEX += d;
-	VERTEX.y += swash(sea, v_grid) * swash_height;
 	v_height = d.y;
 }
 

@@ -8,7 +8,7 @@ namespace OceanDemo.Props;
 /// <summary>
 /// Props standing in the water off the island's south coast: a sea stack and a floating pontoon held by four piles.
 /// Each is a plain mesh plus a <see cref="WaterBody"/> describing its footprint; DemoRoot hands the bodies to the ocean,
-/// which gives them the islands' shore treatment (foam where crests hit them, breaking, lee, swash at the rock's foot).
+/// which gives them the islands' shore treatment (foam where crests hit them, breaking on the rock's foot, lee).
 /// </summary>
 public partial class WaterProps : Node3D
 {

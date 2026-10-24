@@ -18,7 +18,6 @@ internal static class SurfaceUniforms
     public const string StreakAngle = "foam_streak_angle";
     public const string SeaFloor = "sea_floor";
     public const string SeaFloorRect = "sea_floor_rect";
-    public const string ShoreTime = "shore_time";
     public const string BodyPages = "body_pages";
     public const string BodyIndex = "body_index";
     public const string BodyRect = "body_rect";
@@ -33,6 +32,6 @@ internal static class SurfaceUniforms
     public static readonly string[] ShoreShared =
     {
         "shallow_swell_depth", "shallow_chop_depth", "shallow_ripple_depth", "lake_waves",
-        "swash_height", "swash_width", "swash_period", "swash_patch", "breaking_ratio",
+        "breaking_ratio",
     };
 }

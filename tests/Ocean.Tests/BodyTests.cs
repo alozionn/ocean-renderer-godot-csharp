@@ -59,7 +59,7 @@ public class BodyTests
         var layer = BodyLayer.Build(null, new[] { rock }, East)!;
         var centre = BodyLayer.Lookup(null, layer, new Vector2(3, 3));
         await Assert.That(centre.Depth).IsEqualTo(-12f).Within(1e-3f);
-        await Assert.That(centre.Open).IsEqualTo(0f);
+        await Assert.That(centre.Open).IsEqualTo(1f); // the waves keep running inside: the rock hides them
         await Assert.That(centre.Distance).IsEqualTo(-4f).Within(0.05f);
         // Skirt: deep sea (1e4 m) scaled by distance / skirt, so 2.5 m from the waterline it is half as deep.
         var foot = BodyLayer.Lookup(null, layer, new Vector2(3, 3 + 4 + 2.5f));
@@ -68,6 +68,23 @@ public class BodyTests
         await Assert.That(foot.Open).IsEqualTo(1f);
     }
 
+
+    [Test]
+    public async Task WavesDoNotStepAtARockEdge()
+    {
+        // The wave calm must not change across a footprint's edge: a step over 0.25 m tore the mesh into a wall.
+        var floor = SeaFloor.FromHeights(Enumerable.Repeat(-12f, 16 * 16).ToArray(), 16, 16, 8f, new Vector2(-60, -60));
+        var rock = WaterBody.Circle(Vector2.Zero, 6f, top: 14f);
+        rock.Skirt = 5f;
+        rock.Lee = 0f;
+        var layer = BodyLayer.Build(floor, new[] { rock }, East);
+        for (int c = 0; c < 3; c++)
+        {
+            float inside = ShoreCalm.Default.Factor(BodyLayer.Lookup(floor, layer, new Vector2(5.5f, 0)), c);
+            float outside = ShoreCalm.Default.Factor(BodyLayer.Lookup(floor, layer, new Vector2(6.5f, 0)), c);
+            await Assert.That(inside).IsEqualTo(outside).Within(1e-5f);
+        }
+    }
     [Test]
     public async Task BodiesBreakWavesButDoNotCalmThem()
     {
