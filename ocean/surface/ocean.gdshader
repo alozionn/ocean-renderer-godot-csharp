@@ -42,6 +42,9 @@ uniform float height_tint_strength : hint_range(0.0, 1.0, 0.01) = 0.1;
 uniform vec3 water_transmittance : source_color = vec3(0.35, 0.75, 0.8);
 uniform float absorption_distance : hint_range(0.1, 40.0, 0.1) = 10.0;
 uniform float refraction_strength : hint_range(0.0, 0.5, 0.005) = 0.04;
+// Water thickness along the view (m) over which refraction grows to full strength. Thin water bends little; a full
+// offset there lands on sea bed nearer than the surface, gets rejected, and the switch shows as a jagged line.
+uniform float refraction_depth : hint_range(0.1, 20.0, 0.1) = 4.0;
 
 group_uniforms surface;
 uniform float normal_swell : hint_range(0.0, 3.0, 0.01) = 1.0;
@@ -198,7 +201,9 @@ void fragment() {
 	vec3 straight = view_position(SCREEN_UV, textureLod(depth_tex, SCREEN_UV, 0.0).r, INV_PROJECTION_MATRIX);
 	float shore_depth = distance(straight, VERTEX);
 	vec3 view_normal = (VIEW_MATRIX * vec4(normal, 0.0)).xyz;
-	vec2 refracted_uv = SCREEN_UV + view_normal.xy * refraction_strength * clamp(shore_depth, 0.0, 1.0);
+	// The offset fades out near the screen edges, so the sample never leaves the screen (it showed as a dark bar).
+	vec2 edge = smoothstep(vec2(0.0), vec2(0.06), min(SCREEN_UV, 1.0 - SCREEN_UV));
+	vec2 refracted_uv = SCREEN_UV + view_normal.xy * refraction_strength * smoothstep(0.0, refraction_depth, shore_depth) * edge;
 	vec3 behind = view_position(refracted_uv, textureLod(depth_tex, refracted_uv, 0.0).r, INV_PROJECTION_MATRIX);
 	if (behind.z > VERTEX.z) {
 		refracted_uv = SCREEN_UV;
