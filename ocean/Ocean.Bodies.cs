@@ -8,7 +8,7 @@ using Ocean.Surface;
 namespace Ocean;
 
 // Bodies in the water: one list every water effect reads. Stationary bodies fold into the shore data (BodyLayer: fine
-// pages over the sea floor), so a rock, a post or a moored hull gets the islands' waterline foam, calm lee, surf and
+// pages over the sea floor), so a rock, a post or a moored hull gets the islands' contact foam, breaking, calm lee and
 // swash. Rebuilt at most once a frame, only when the stationary set or the swell direction changed; the terrain's sea
 // floor is sampled, never rebuilt.
 public partial class Ocean
@@ -59,22 +59,10 @@ public partial class Ocean
         _bodySignature = signature;
         _bodyLayer = BodyLayer.Build(_seaFloor, _bodies, new System.Numerics.Vector2(wave.X, wave.Y));
         _waves.Bodies = _bodyLayer;
-        if (_bodyLayer == null)
-        {
-            SetShared(SurfaceUniforms.BodyRect, Vector4.Zero);
-            return;
-        }
-        var l = _bodyLayer;
-        var atlas = new byte[l.Atlas.Length * sizeof(float)];
-        Buffer.BlockCopy(l.Atlas, 0, atlas, 0, atlas.Length);
-        var index = new float[l.Index.Length];
-        for (int i = 0; i < index.Length; i++) index[i] = l.Index[i];
-        var indexBytes = new byte[index.Length * sizeof(float)];
-        Buffer.BlockCopy(index, 0, indexBytes, 0, indexBytes.Length);
-        SetShared(SurfaceUniforms.BodyPages, ImageTexture.CreateFromImage(Image.CreateFromData(l.AtlasWidth, l.AtlasHeight, false, Image.Format.Rgbaf, atlas)));
-        SetShared(SurfaceUniforms.BodyIndex, ImageTexture.CreateFromImage(Image.CreateFromData(l.IndexWidth, l.IndexDepth, false, Image.Format.Rf, indexBytes)));
-        SetShared(SurfaceUniforms.BodySamples, (float)l.Samples);
-        SetShared(SurfaceUniforms.BodyRect, new Vector4(l.Origin.X, l.Origin.Y, l.PageSize, l.PagesPerRow));
+        if (_shore == null) return;
+        _shore.SetBodies(_bodyLayer);
+        SetShared(SurfaceUniforms.BodySamples, _shore.BodySamples);
+        SetShared(SurfaceUniforms.BodyRect, _shore.BodyRect);
     }
 
     /// <summary>

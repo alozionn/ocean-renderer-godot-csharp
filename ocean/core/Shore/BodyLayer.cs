@@ -6,11 +6,18 @@ using Ocean.Core.Bodies;
 
 namespace Ocean.Core.Shore;
 
-/// <summary>What the shore shader reads at one point: the sea floor texture's channels plus the lee of bodies.</summary>
+/// <summary>
+/// What the shore shader reads at one point: the sea floor texture's channels plus the lee of bodies. Depth is the
+/// water over the ground or a body (breaking, contact foam, swash); WaveDepth is the terrain's alone, and calms the
+/// waves: a rock or a reef is too small to calm a swell, it breaks it.
+/// </summary>
 public readonly record struct ShorePoint(float Depth, float Distance, float Open, float Shelter)
 {
     /// <summary>Deep open sea: what the shader reports without a sea floor or bodies.</summary>
     public static readonly ShorePoint Deep = new(1e4f, 1e4f, 1f, 0f);
+
+    /// <summary>Water depth over the terrain alone (m), for the wave calm. Defaults to <see cref="Depth"/>.</summary>
+    public float WaveDepth { get; init; } = Depth;
 }
 
 /// <summary>
@@ -160,11 +167,15 @@ public sealed class BodyLayer
         return true;
     }
 
-    /// <summary>What the shader reads at a world xz: a body page if one is there, else the sea floor, else deep sea.</summary>
+    /// <summary>
+    /// What the shader reads at a world xz: a body page if one is there, else the sea floor, else deep sea. The wave
+    /// depth is always the terrain's.
+    /// </summary>
     public static ShorePoint Lookup(SeaFloor? floor, BodyLayer? bodies, Vector2 xz)
     {
-        if (bodies != null && bodies.TrySample(xz, out var p)) return p;
-        return floor?.Sample(xz) ?? ShorePoint.Deep;
+        var ground = floor?.Sample(xz) ?? ShorePoint.Deep;
+        if (bodies != null && bodies.TrySample(xz, out var p)) return p with { WaveDepth = ground.Depth };
+        return ground;
     }
 
     /// <summary>Where a body changes anything: its footprint plus reach and skirt, and its lee downwind.</summary>
@@ -224,9 +235,13 @@ public sealed class BodyLayer
             else if (grounded && b.Skirt > 0f)
                 depth = MathF.Min(depth, ground.Depth * MathF.Min(s / b.Skirt, 1f));
 
-            var (r0, r1) = Blend(b);
-            float w = Smoothstep(r0, r1, s);
-            distance = MathF.Min(distance, s + (ground.Distance - s) * w);
+            // Only a body that stands out of the water has a waterline; a submerged one only makes the water shallow.
+            if (b.Top > 0f)
+            {
+                var (r0, r1) = Blend(b);
+                float w = Smoothstep(r0, r1, s);
+                distance = MathF.Min(distance, s + (ground.Distance - s) * w);
+            }
 
             if (b.Lee > 0f)
             {

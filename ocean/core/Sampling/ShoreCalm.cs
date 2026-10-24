@@ -22,11 +22,11 @@ public readonly record struct ShoreCalm(float SwellDepth, float ChopDepth, float
     /// <summary>Wave strength of a cascade (0 swell, 1 chop, 2 ripples) over water of this depth and openness.</summary>
     public float Factor((float Depth, float Open) shore, int cascade) => Factor(new ShorePoint(shore.Depth, 1e4f, shore.Open, 0f), cascade);
 
-    /// <summary>Wave strength of a cascade at a shore sample, lee included.</summary>
+    /// <summary>Wave strength of a cascade at a shore sample: by the terrain's water depth, lee included.</summary>
     public float Factor(ShorePoint shore, int cascade)
     {
         float full = cascade switch { 0 => SwellDepth, 1 => ChopDepth, _ => RippleDepth };
-        float t = Math.Clamp(shore.Depth / full, 0f, 1f);
+        float t = Math.Clamp(shore.WaveDepth / full, 0f, 1f);
         float lee = cascade switch { 0 => LeeCalm.X, 1 => LeeCalm.Y, _ => LeeCalm.Z };
         return t * t * (3f - 2f * t) * (LakeWaves + (1f - LakeWaves) * shore.Open) * (1f - shore.Shelter * lee);
     }

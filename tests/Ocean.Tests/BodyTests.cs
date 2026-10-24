@@ -69,6 +69,21 @@ public class BodyTests
     }
 
     [Test]
+    public async Task BodiesBreakWavesButDoNotCalmThem()
+    {
+        // A reef 1 m under the surface in 12 m of water: shallow for breaking and foam, but the waves keep the calm of
+        // the terrain's 12 m (a swell is not calmed over a few metres; it breaks).
+        var floor = SeaFloor.FromHeights(Enumerable.Repeat(-12f, 16 * 16).ToArray(), 16, 16, 8f, new Vector2(-60, -60));
+        var reef = WaterBody.Circle(Vector2.Zero, 4f, top: -1f);
+        reef.Skirt = 3f;
+        var p = BodyLayer.Lookup(floor, BodyLayer.Build(floor, new[] { reef }, East), Vector2.Zero);
+        await Assert.That(p.Depth).IsEqualTo(1f).Within(1e-3f);
+        await Assert.That(p.WaveDepth).IsEqualTo(12f).Within(1e-3f);
+        await Assert.That(ShoreCalm.Default.Factor(p, 1)).IsEqualTo(1f).Within(1e-5f);
+        await Assert.That(ShoreCalm.Default.Factor(p, 0)).IsEqualTo(ShoreCalm.Default.Factor((12f, 1f), 0)).Within(1e-5f);
+    }
+
+    [Test]
     public async Task FloatingHullKeepsTheWaterUnderIt()
     {
         var heights = Enumerable.Repeat(-20f, 16 * 16).ToArray();
@@ -92,6 +107,7 @@ public class BodyTests
         var p = BodyLayer.Lookup(null, BodyLayer.Build(null, new[] { reef }, East), Vector2.Zero);
         await Assert.That(p.Depth).IsEqualTo(1.5f).Within(1e-3f);
         await Assert.That(p.Open).IsEqualTo(1f);
+        await Assert.That(p.Distance).IsEqualTo(1e4f); // no waterline: no contact foam ring, only breaking
     }
 
     [Test]

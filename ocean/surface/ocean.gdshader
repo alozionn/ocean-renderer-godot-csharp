@@ -112,30 +112,27 @@ uniform float shallow_swell_depth : hint_range(0.5, 60.0, 0.5) = 16.0;
 uniform float shallow_chop_depth : hint_range(0.1, 20.0, 0.1) = 5.0;
 uniform float shallow_ripple_depth : hint_range(0.05, 5.0, 0.05) = 0.6;
 uniform float lake_waves : hint_range(0.0, 1.0, 0.01) = 0.15;
-uniform float shore_band_width : hint_range(0.0, 30.0, 0.1) = 4.0;
-uniform float shore_band_strength : hint_range(0.0, 2.0, 0.01) = 0.8;
-uniform float surf_zone : hint_range(0.0, 200.0, 1.0) = 30.0;
-uniform float surf_spacing : hint_range(2.0, 60.0, 0.5) = 16.0;
-uniform float surf_speed : hint_range(0.0, 10.0, 0.05) = 2.2;
-uniform float surf_sharpness : hint_range(1.0, 24.0, 0.5) = 7.0;
-uniform float surf_strength : hint_range(0.0, 2.0, 0.01) = 1.0;
-// Each front lights only stretches of coast where along-coast noise beats surf_gaps; stretches are ~surf_patch metres.
-uniform float surf_gaps : hint_range(0.0, 1.0, 0.01) = 0.35;
-uniform float surf_patch : hint_range(5.0, 200.0, 1.0) = 40.0;
-// How much the coast facing away from the swell loses its surf (0: all coasts alike).
-uniform float surf_windward : hint_range(0.0, 1.0, 0.01) = 0.6;
-// Run-up after each front: the water near the waterline lifts by up to swash_height, tapering over swash_width
-// seaward, and the fresh uprush is foamy.
-uniform float swash_height : hint_range(0.0, 2.0, 0.01) = 0.3;
-uniform float swash_width : hint_range(0.5, 30.0, 0.5) = 6.0;
-uniform float swash_foam : hint_range(0.0, 2.0, 0.01) = 0.7;
+// Shore foam is injected into the foam field (foam_field.glsl), where the field's decay and spread shape it: a strip
+// contact_width wide along every waterline (coasts and bodies) foams when a crest of at least contact_crest arrives
+// (contact_calm of that in calm water), and water shallower than breaking_ratio x the wave height breaks.
+uniform float contact_width : hint_range(0.0, 10.0, 0.05) = 2.5;
+uniform float contact_foam : hint_range(0.0, 2.0, 0.01) = 1.5;
+uniform float contact_crest : hint_range(0.05, 5.0, 0.05) = 0.8;
+uniform float contact_calm : hint_range(0.0, 1.0, 0.01) = 0.3;
 uniform float breaking_ratio : hint_range(0.0, 3.0, 0.01) = 1.3;
 uniform float breaking_strength : hint_range(0.0, 2.0, 0.01) = 0.6;
+// Swash: the water near the waterline lifts by up to swash_height, tapering over swash_width seaward, once every
+// swash_period seconds, each stretch of coast (~swash_patch metres) on its own clock.
+uniform float swash_height : hint_range(0.0, 2.0, 0.01) = 0.3;
+uniform float swash_width : hint_range(0.5, 30.0, 0.5) = 6.0;
+uniform float swash_period : hint_range(1.0, 30.0, 0.1) = 7.0;
+uniform float swash_patch : hint_range(5.0, 200.0, 1.0) = 30.0;
 uniform vec3 lagoon_color : source_color = vec3(0.04, 0.55, 0.55);
 uniform float lagoon_depth : hint_range(0.1, 30.0, 0.1) = 6.0;
 uniform float lagoon_strength : hint_range(0.0, 1.0, 0.01) = 0.6;
 uniform vec3 sediment_color : source_color = vec3(0.52, 0.47, 0.36);
 uniform float sediment_strength : hint_range(0.0, 1.0, 0.01) = 0.12;
+uniform float sediment_depth : hint_range(0.1, 20.0, 0.1) = 3.0;
 group_uniforms;
 
 #include "include/foam_composite.gdshaderinc"
@@ -167,7 +164,7 @@ void vertex() {
 	vec3 calm = shore_calm(sea);
 	vec3 d = displacement_at(v_grid, length(VERTEX.xz - CAMERA_POSITION_WORLD.xz), spacing, calm);
 	VERTEX += d;
-	VERTEX.y += swash(sea, v_grid, shore_facing(sea, v_grid)).x * swash_height;
+	VERTEX.y += swash(sea, v_grid) * swash_height;
 	v_height = d.y;
 }
 
@@ -211,18 +208,11 @@ void fragment() {
 	}
 	float thickness = distance(behind, VERTEX);
 
-	// Shore foam: against anything in the depth buffer (hulls, rocks), plus, with a sea floor, a band a few metres wide by
-	// distance from the shore, surf lines rolling in, and crests breaking where the water is shallower than ~1.3 wave heights.
+	// Contact foam against anything in the depth buffer that is not a registered body (a thin line). Coast and body
+	// foam, and breaking in the shallows, come from the foam field, which also calms its open-sea foam over the shallows.
 	float shore = 1.0 - smoothstep(0.0, shore_foam_distance, shore_depth);
 	float wet = step(0.0, sea.depth);
-	float band = (1.0 - smoothstep(0.0, shore_band_width, abs(sea.distance))) * wet * shore_band_strength;
-	float facing = shore_facing(sea, v_grid);
-	float surf = surf_lines(sea, v_grid, facing) * surf_strength;
-	float breaking = smoothstep(0.15, 0.6, breaking_ratio * 2.0 * max(v_height, 0.0) - sea.depth) * wet * sea.open * breaking_strength;
-	float uprush = swash(sea, v_grid, facing).y * swash_foam * (1.0 - smoothstep(0.0, 0.5 * swash_width, sea.distance));
-	shore = max(max(max(shore, band), max(surf, breaking)), uprush);
-	// The foam field comes from deep-water waves: calm it with the chop.
-	FoamSample foam = foam_composite(v_grid, grid_dx, grid_dy, dist, shore, wave_calm.y, b > 0.0);
+	FoamSample foam = foam_composite(v_grid, grid_dx, grid_dy, dist, shore, 1.0, b > 0.0);
 	float milk = smoothstep(0.0, milk_range, foam.density) * milk_strength;
 
 	// Foam flattens the wave normal (but still follows it) and adds the lace's own relief.
@@ -237,9 +227,9 @@ void fragment() {
 	vec3 scatter = mix(shallow_color, deep_color, 1.0 - exp(-thickness / depth_scale)) * body_tint;
 	scatter = mix(scatter, height_tint, smoothstep(0.0, 2.5, v_height) * height_tint_strength);
 	scatter = mix(scatter, milk_color, milk);
-	// With a sea floor: turquoise over shallow ground (lagoon), sand stirred up in the surf zone (sediment).
+	// With a sea floor: turquoise over shallow ground (lagoon), sand stirred up where the open sea is shallow (sediment).
 	float lagoon = lagoon_strength * exp(-max(sea.depth, 0.0) / lagoon_depth) * wet;
-	float sediment = sediment_strength * (1.0 - smoothstep(0.0, 0.6 * surf_zone, sea.distance)) * sea.open * wet;
+	float sediment = sediment_strength * (1.0 - smoothstep(0.0, sediment_depth, sea.depth)) * sea.open * wet;
 	scatter = mix(mix(scatter, lagoon_color, lagoon), sediment_color, sediment);
 	vec3 transmittance = pow(water_transmittance, vec3(thickness / absorption_distance)) * (1.0 - milk) * (1.0 - 0.6 * sediment);
 	vec3 lagoon_tint = mix(vec3(1.0), lagoon_color * 2.0, lagoon);

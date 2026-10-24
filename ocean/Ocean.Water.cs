@@ -88,6 +88,10 @@ public partial class Ocean
         if (_material == null) return;
         _waves.Calm = new ShoreCalm(ShaderFloat("shallow_swell_depth"), ShaderFloat("shallow_chop_depth"),
             ShaderFloat("shallow_ripple_depth"), ShaderFloat("lake_waves"));
+        // The shore foam the foam field injects reads the same uniforms (foam_field.glsl, Shore block).
+        _shore?.SetFoam(new Vector4(_waves.Calm.SwellDepth, _waves.Calm.ChopDepth, _waves.Calm.RippleDepth, _waves.Calm.LakeWaves),
+            new Vector4(ShaderFloat("contact_width"), ShaderFloat("contact_foam"), ShaderFloat("contact_crest"), ShaderFloat("contact_calm")),
+            ShaderFloat("breaking_ratio"), ShaderFloat("breaking_strength"));
     }
 
     float ShaderFloat(string name)

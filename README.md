@@ -87,23 +87,21 @@ It is uploaded as one small texture and changes how the water behaves over it, a
 
 | | |
 |---|---|
-| **Quiet water** | each cascade's waves fade out as the water gets shallow: swell first (`shallow_swell_depth` 16 m), then chop (5 m), then ripples (0.6 m). Over land there are no waves, so water never washes through beaches. Lakes keep `lake_waves` (15 %) of every cascade. The deep-water foam field is calmed with the chop. |
-| **Shore foam** | a band `shore_band_width` (4 m) wide along the coast and around every [body](#bodies-in-the-water), in metres from the shoreline (independent of the camera). Anything that is neither terrain nor a registered body still gets the thin depth-buffer contact foam (`shore_foam_distance`). |
-| **Surf** | wave fronts travelling down the distance field towards the beach (`surf_spacing` 16 m, `surf_speed` 2.2 m/s), fading in over the inner part of `surf_zone` (30 m). They arrive in broken sets, not rings: each front lights only some stretches of coast (`surf_gaps` 0.35, stretches of ~`surf_patch` 40 m), different ones from front to front, every few fronts a stronger one, and coasts turned away from the swell keep less (`surf_windward` 0.6; the lee of a body none). Strength `surf_strength` (1.0). They run through the foam lace like any other foam. |
-| **Swash** | when a front reaches the waterline the water runs up the beach and drains back until the next one: the surface within `swash_width` (6 m) of the waterline lifts by up to `swash_height` (0.3 m), so the wet edge climbs a gentle beach by metres and a steep one by less, with fresh foam in the uprush (`swash_foam`). Only where the water at the waterline is shallow: beaches and grounded bodies (a rock's foot), not hulls or sheer walls. The CPU water sampler leaves it out. |
-| **Breaking** | foam where the water is shallower than `breaking_ratio` (1.3) × the local wave height: sandbars, reefs and submerged bodies break before the beach. |
-| **Colour** | a turquoise lagoon tint over shallow ground (`lagoon_color`, `lagoon_depth` 6 m) and stirred-up sand in the surf zone (`sediment_color`). |
+| **Quiet water** | each cascade's waves fade out as the water over the *terrain* gets shallow: swell first (`shallow_swell_depth` 16 m), then chop (5 m), then ripples (0.6 m). Over land there are no waves, so water never washes through beaches. Lakes keep `lake_waves` (15 %) of every cascade. The foam field's open-sea (whitecap) foam is calmed with the chop. Bodies do not calm waves this way: a rock or reef is too small to calm a swell, it breaks it. |
+| **Shore foam** | injected into the foam field, not drawn: a strip `contact_width` (2.5 m) wide along every waterline, coast or [body](#bodies-in-the-water), foams when a crest arrives (full at `contact_crest` 0.8 m of open-sea height, `contact_calm` 30 % of that in calm water, gain `contact_foam` 1.5), and water shallower than `breaking_ratio` (1.3) × the local wave height breaks (`breaking_strength` 0.6): sandbars, reefs, submerged bodies, a rock's sloping foot. The field's decay and spread then shape it like any other foam, so it comes and goes with the waves, drifts, and has no fixed width; its fresh foam also throws spray. Anything that is neither terrain nor a registered body still gets the thin depth-buffer contact line (`shore_foam_distance`). |
+| **Swash** | the water near the waterline runs up the beach and drains back: the surface within `swash_width` (6 m) lifts by up to `swash_height` (0.3 m) once every `swash_period` (7 s), each stretch of coast (~`swash_patch` 30 m) on its own clock and with its own strength per run-up, so the wet edge climbs a gentle beach by metres and a steep one by less. Only where the water at the waterline is shallow: beaches and grounded bodies (a rock's foot), not hulls or sheer walls; less in a body's lee. The CPU water sampler leaves it out. |
+| **Colour** | a turquoise lagoon tint over shallow ground (`lagoon_color`, `lagoon_depth` 6 m) and stirred-up sand where the open sea is shallower than `sediment_depth` (3 m, `sediment_color`). |
 
 Outside the sea floor's rectangle, and with no sea floor at all, all of this is off and the ocean looks exactly as it
-did. The demo's island pushes its heightmap on every (re)generation (`DemoRoot`). The swell direction (for windward
-surf and lee) is the way cascade 0's waves travel: against its `windDirection` vector, since the spectrum puts its
+did. The demo's island pushes its heightmap on every (re)generation (`DemoRoot`). The swell direction (for the lee
+of bodies) is the way cascade 0's waves travel: against its `windDirection` vector, since the spectrum puts its
 energy at wave vectors along the wind and each component is `cos(k·p + ωt)`.
 
 ## Bodies in the water
 
 Rocks, posts, pontoons and hulls register a footprint with the ocean, and every water effect reads that one list.
-Stationary bodies fold into the shore data the same way islands do, so a sea stack gets the islands' waterline foam,
-calm lee, small breaks on its sloping foot and swash; a post gets a small foam collar; a moored hull a waterline and a
+Stationary bodies fold into the shore data the same way islands do, so a sea stack gets foam when crests hit it,
+breaks on its sloping foot, a calm lee and swash; a post gets a small collar; a moored hull foam along its sides and a
 lee while the waves keep running under it.
 
 ```csharp
@@ -127,19 +125,21 @@ A `WaterBody` is a rounded rectangle at the waterline in world xz (`Position`, `
 `Beam`, `Rounding`: a circle when length = beam = 2 × rounding, a capsule at rounding = beam / 2), plus `Top` (height
 above sea level; negative is a submerged reef the waves break over), `Draft` (∞: stands on the sea bed and is ground
 to the water; finite: where the water is deeper, waves run under it), `Skirt` (sea bed sloping up to its foot over that
-many metres), `Reach` (how far its shore effects reach; default a third of its shorter side plus the skirt,
+many metres), `Reach` (how far it counts as the nearest shore; default a third of its shorter side plus the skirt,
 0.6–24 m), `Lee` / `LeeLength` (shelter strength 0.6 and length per metre of the width it shows the waves, 3),
 `Velocity` and `Stationary`.
 
 How it folds (`Ocean.Core.Shore.BodyLayer`, pure C#): around the stationary bodies, a sparse set of 16 m pages with
 0.25 m samples holds the sea floor with the bodies merged in: the shallowest depth, the nearest waterline (each body's
 signed distance, handed back to the terrain's between its reach and 1.5 × reach + 1 m, so pages join the coarse texture
-without a seam), open sea, and a fourth channel, the lee shelter (a shadow downwind that narrows as the waves bend back
+without a seam; a submerged body has no waterline and only makes the water shallow), open sea, and the lee shelter (a shadow downwind that narrows as the waves bend back
 into it; it calms swell fully, chop by 80 %, ripples by 30 %). The shader looks a page up first (one `texelFetch` in a
-small index texture) and falls back to the coarse sea floor, so every shore effect above, and the CPU water sampler,
+small index texture) over the coarse sea floor, so every shore effect above, the foam field and the CPU water sampler
 treat islands and bodies alike. Updating bodies rebuilds only the pages (milliseconds), never the terrain's distance
 transform; changing the swell direction refolds the lee. Without bodies the index is off and nothing changes. Measured
-cost of the whole shore pass with bodies, new surf and swash: within ±0.03 ms of before at 1080p (`--bench`).
+cost: the shore foam in the foam field compute plus the lighter surface shader came out 0.01–0.04 ms per frame faster
+than drawing a band and surf lines (`--bench`, 1080p). Calm uses the terrain's depth only (`WaveDepth`): bodies break
+waves, they do not flatten them.
 
 The demo registers a sea stack, a submerged boulder, a pontoon on four piles off the island's south coast
 (`demo/props/WaterProps.cs`) and its boat, stationary (moored) while it lies still (`DemoRoot`).
@@ -173,7 +173,8 @@ to them and follows that pose critically damped, fed the water's own rate of cha
 
 GPU particles (`ocean/spray/`, the `Spray` child of `ocean.tscn`). Each particle, when it restarts, picks a random
 spot around the camera and asks the ocean's own data whether spray belongs there: fresh crest foam from the near foam
-field (freshness above `threshold`), or a surf line or breaking shallow from the sea floor. If not, it stays inactive
+field (freshness above `threshold`: crests, and crests hitting shores and bodies), or a breaking shallow from the sea
+floor. If not, it stays inactive
 for that lifetime. Spray hops up, arcs downwind (cascade 0's direction), falls back and thins out within a
 second; each puff is a camera-facing quad shaded procedurally (a ragged mist body that billows as it ages, plus
 distinct droplets that are gone by mid-life), back-lit by the sun and drawn after the water. No readback: the
@@ -222,7 +223,8 @@ only the waves they can resolve instead of aliasing and swimming as the camera m
 ## The foam pipeline in one paragraph
 
 Two camera-centred RG16F fields (near: 1024² over 256 m, far: 1024² over 2048 m), snapped to whole texels, sum the three
-cascades' Jacobian partials at their own resolution and inject foam where the combined Jacobian drops below `bias`.
+cascades' Jacobian partials at their own resolution and inject foam where the combined Jacobian drops below `bias` (calmed
+over shallow ground), and where crests meet a waterline or break in the shallows ([Shores and terrain](#shores-and-terrain)).
 Red is density (slow decay, blurred every tick, mostly along the swell direction: the trails), green is freshness (fast
 decay: the whitecaps). Because the field lives in world space while the crest that injects it moves on, foam stays with
 the water and trails form behind breaking crests. The surface shader looks the field up at the undisplaced grid

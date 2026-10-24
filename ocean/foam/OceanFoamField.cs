@@ -9,7 +9,7 @@ namespace Ocean.Foam;
 
 /// <summary>
 /// A camera-centred foam field (RG16F: density, freshness), snapped to whole texels, ping-ponging between two textures.
-/// Fed by the Jacobian of the summed cascades.
+/// Fed by the Jacobian of the summed cascades and by the shore (crests meeting waterlines, breaking in the shallows).
 /// </summary>
 internal sealed class OceanFoamField
 {
@@ -77,11 +77,13 @@ internal sealed class OceanFoamField
                 RdResources.Image(1, _tex[1 - i]),
             };
             for (int c = 0; c < 3; c++) uniforms.Add(RdResources.Sampled2D(2 + c, _partialsSampler, cascades[System.Math.Min(c, cascades.Count - 1)].Partials));
+            for (int c = 0; c < 3; c++) uniforms.Add(RdResources.Sampled2D(5 + c, _partialsSampler, cascades[System.Math.Min(c, cascades.Count - 1)].Displacement));
             _sets[i] = _rd.UniformSetCreate(uniforms, _p.FoamShader, 0);
         }
     }
 
-    public void Record(long list, Vector2 camera, float dt, OceanConfig config)
+    /// <param name="shore">Uniform set 1: the shore data and foam settings (Surface.ShoreTextures).</param>
+    public void Record(long list, Vector2 camera, float dt, OceanConfig config, Rid shore)
     {
         var origin = FoamFieldMath.OriginTexel(camera.X, camera.Y, Texel, Size);
         var shift = FoamFieldMath.Shift(_originTexel, origin, Size, _first);
@@ -112,6 +114,7 @@ internal sealed class OceanFoamField
 
         _rd.ComputeListBindComputePipeline(list, _p.Foam);
         _rd.ComputeListBindUniformSet(list, _sets[_current], 0);
+        _rd.ComputeListBindUniformSet(list, shore, 1);
         _rd.ComputeListSetPushConstant(list, _push, (uint)_push.Length);
         uint g = RdResources.Groups(Size, 8);
         _rd.ComputeListDispatch(list, g, g, 1);

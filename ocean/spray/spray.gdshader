@@ -2,9 +2,9 @@ shader_type particles;
 render_mode disable_force;
 
 // Sea spray. Each particle, when it (re)starts, picks a random spot around the camera and asks the ocean's own data
-// whether spray belongs there: fresh crest foam in the near foam field, or a surf line / breaking shallow from the sea
-// floor. If not, it stays inactive for this lifetime. All on the GPU; no readback. Set by C# (Ocean.cs), the shore
-// uniforms mirrored from the surface material.
+// whether spray belongs there: fresh foam in the near foam field (crests, and crests reaching waterlines) or a breaking
+// shallow from the sea floor. If not, it stays inactive for this lifetime. All on the GPU; no readback. Set by C#
+// (Ocean.cs), the shore uniforms mirrored from the surface material.
 
 uniform sampler2D displacement_0 : filter_linear, repeat_enable;
 uniform sampler2D displacement_1 : filter_linear, repeat_enable;
@@ -30,15 +30,10 @@ uniform float shallow_swell_depth = 16.0;
 uniform float shallow_chop_depth = 5.0;
 uniform float shallow_ripple_depth = 0.6;
 uniform float lake_waves = 0.15;
-uniform float surf_zone = 30.0;
-uniform float surf_spacing = 16.0;
-uniform float surf_speed = 2.2;
-uniform float surf_sharpness = 7.0;
-uniform float surf_gaps = 0.35;
-uniform float surf_patch = 40.0;
-uniform float surf_windward = 0.6;
 uniform float swash_height = 0.3;
 uniform float swash_width = 6.0;
+uniform float swash_period = 7.0;
+uniform float swash_patch = 30.0;
 uniform float breaking_ratio = 1.3;
 
 #include "../surface/include/shore.gdshaderinc"
@@ -72,12 +67,11 @@ void start() {
 	vec3 d = displacement_at(xz, calm);
 
 	vec2 fuv = (xz - foam_near_rect.xy) * foam_near_rect.w;
-	float fresh = all(greaterThanEqual(fuv, vec2(0.0))) && all(lessThanEqual(fuv, vec2(1.0))) ? textureLod(foam_near, fuv, 0.0).g * calm.y : 0.0;
+	float fresh = all(greaterThanEqual(fuv, vec2(0.0))) && all(lessThanEqual(fuv, vec2(1.0))) ? textureLod(foam_near, fuv, 0.0).g : 0.0; // already calmed over the shallows
 	float crest = smoothstep(spray_threshold, spray_threshold + 0.4, fresh) * step(0.0, d.y);
 	float wet = step(0.0, sea.depth);
-	float surf = pow(surf_lines(sea, xz, shore_facing(sea, xz)), 2.0) * spray_shore;
 	float breaking = smoothstep(0.15, 0.6, breaking_ratio * 2.0 * max(d.y, 0.0) - sea.depth) * wet * sea.open * spray_shore;
-	float p = clamp(max(crest, max(surf, breaking)), 0.0, 1.0) * wet;
+	float p = clamp(max(crest, breaking), 0.0, 1.0) * wet;
 
 	if (spray_rand(seed) >= p || spray_opacity <= 0.0) {
 		ACTIVE = false;
