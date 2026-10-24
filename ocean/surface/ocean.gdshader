@@ -107,7 +107,7 @@ uniform float shore_fade_distance : hint_range(0.01, 3.0, 0.01) = 1.0;
 
 // Only active with a sea floor (Ocean.SetSeaFloor). Depths in metres of water, distances in metres from the shore.
 group_uniforms shore;
-uniform float shallow_swell_depth : hint_range(0.5, 60.0, 0.5) = 16.0;
+uniform float shallow_swell_depth : hint_range(0.5, 60.0, 0.5) = 6.0;
 uniform float shallow_chop_depth : hint_range(0.1, 20.0, 0.1) = 5.0;
 uniform float shallow_ripple_depth : hint_range(0.05, 5.0, 0.05) = 0.6;
 uniform float lake_waves : hint_range(0.0, 1.0, 0.01) = 0.15;
@@ -123,6 +123,17 @@ uniform float contact_foam : hint_range(0.0, 2.0, 0.01) = 1.5;
 uniform float contact_crest : hint_range(0.05, 5.0, 0.05) = 0.8;
 uniform float breaking_ratio : hint_range(0.0, 3.0, 0.01) = 1.3;
 uniform float breaking_strength : hint_range(0.0, 2.0, 0.01) = 0.6;
+// Lingering: near waterlines the foam fades contact_linger times slower (0: like open sea), so a hit stays a while.
+uniform float contact_linger : hint_range(0.0, 0.9, 0.01) = 0.5;
+// Run-up: the swell the shallows took away comes back at the waterline. The water there rises with each arriving crest
+// and runs up the beach, and drops in the trough, uncovering sand: runup_strength metres per metre of open-sea
+// height, softly limited to runup_up above and runup_down below sea level, over water shallower than runup_depth and
+// up to runup_land metres inland.
+uniform float runup_strength : hint_range(0.0, 2.0, 0.01) = 0.6;
+uniform float runup_up : hint_range(0.0, 3.0, 0.01) = 0.6;
+uniform float runup_down : hint_range(0.0, 2.0, 0.01) = 0.2;
+uniform float runup_depth : hint_range(0.5, 10.0, 0.1) = 3.0;
+uniform float runup_land : hint_range(1.0, 40.0, 0.5) = 12.0;
 uniform vec3 lagoon_color : source_color = vec3(0.04, 0.55, 0.55);
 uniform float lagoon_depth : hint_range(0.1, 30.0, 0.1) = 6.0;
 uniform float lagoon_strength : hint_range(0.0, 1.0, 0.01) = 0.6;
@@ -136,6 +147,7 @@ group_uniforms;
 
 varying vec2 v_grid; // undisplaced world xz: the simulation's texture coordinate, so foam rides with the water
 varying float v_height;
+varying float v_runup; // run-up lift (m), so the fade at the waterline follows the moving edge
 varying float v_foam;
 varying float v_white;
 varying float v_bubbles;
@@ -152,6 +164,20 @@ vec3 displacement_at(vec2 grid, float dist, float spacing, vec3 calm) {
 		+ textureLod(displacement_2, grid / patch_sizes.z, lod.z).xyz * fade.z;
 }
 
+// Run-up near the waterline: the open-sea swell and chop height here (what the shallows calmed away), smoothed (mip 2),
+// returned where the swell was calmed: positive at crests (water climbs the beach), negative in troughs (it draws back).
+float shore_runup(ShoreSample s, vec2 grid, float swell_calm) {
+	if (runup_strength <= 0.0 || s.depth > runup_depth || s.distance < -runup_land) return 0.0;
+	// Open sea or land, not a lake; fading out seaward and far inland; only as much as the shallows took from the swell.
+	float where = max(s.open, step(s.depth, 0.0)) * (1.0 - smoothstep(0.3 * runup_depth, runup_depth, s.depth))
+		* smoothstep(-runup_land, -0.5 * runup_land, s.distance) * (1.0 - swell_calm);
+	if (where <= 0.0) return 0.0;
+	float h = (textureLod(displacement_0, grid / patch_sizes.x, 2.0).y + textureLod(displacement_1, grid / patch_sizes.y, 2.0).y) * runup_strength;
+	// Soft limits: a storm swell must not flood the island.
+	h = h > 0.0 ? runup_up * (1.0 - exp(-h / max(runup_up, 1e-3))) : -runup_down * (1.0 - exp(h / max(runup_down, 1e-3)));
+	return h * where;
+}
+
 void vertex() {
 	v_grid = VERTEX.xz;
 	vec2 local = VERTEX.xz - MODEL_MATRIX[3].xz; // offset from the (snapped) mesh centre
@@ -161,6 +187,8 @@ void vertex() {
 	vec3 d = displacement_at(v_grid, length(VERTEX.xz - CAMERA_POSITION_WORLD.xz), spacing, calm);
 	VERTEX += d;
 	v_height = d.y;
+	v_runup = shore_runup(sea, v_grid, calm.x);
+	VERTEX.y += v_runup;
 }
 
 void fragment() {
@@ -244,7 +272,7 @@ void fragment() {
 	EMISSION = refracted * transmittance * lagoon_tint * (1.0 - fresnel) * (1.0 - foam.coverage);
 	ROUGHNESS = mix(sqrt(alpha), foam_roughness, foam.coverage);
 	SPECULAR = 0.354 * (1.0 - smoothstep(0.0, 0.4, foam.coverage)); // f0 = 0.16 * 0.354^2 = 0.02
-	ALPHA = smoothstep(0.0, shore_fade_distance, shore_depth) * smoothstep(0.0, shore_fade_depth, sea.depth);
+	ALPHA = smoothstep(0.0, shore_fade_distance, shore_depth) * smoothstep(0.0, shore_fade_depth, sea.depth + v_runup);
 	v_foam = foam.coverage;
 	v_white = foam.white;
 	v_bubbles = max(milk, foam.coverage);

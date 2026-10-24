@@ -11,7 +11,7 @@ namespace Ocean.Core.Sampling;
 /// </summary>
 public readonly record struct ShoreCalm(float SwellDepth, float ChopDepth, float RippleDepth, float LakeWaves)
 {
-    public static readonly ShoreCalm Default = new(16f, 5f, 0.6f, 0.15f);
+    public static readonly ShoreCalm Default = new(6f, 5f, 0.6f, 0.15f);
 
     /// <summary>What shore_at reports without a sea floor: deep open sea.</summary>
     public static readonly (float Depth, float Open) Deep = (1e4f, 1f);

@@ -26,7 +26,7 @@ uniform float spray_opacity = 0.45;
 uniform float spray_shore = 1.0;
 
 // Shore (same names and values as ocean.gdshader's "shore" group).
-uniform float shallow_swell_depth = 16.0;
+uniform float shallow_swell_depth = 6.0;
 uniform float shallow_chop_depth = 5.0;
 uniform float shallow_ripple_depth = 0.6;
 uniform float lake_waves = 0.15;

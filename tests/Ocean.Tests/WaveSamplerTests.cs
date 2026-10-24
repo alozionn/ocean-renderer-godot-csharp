@@ -271,7 +271,7 @@ public class WaveSamplerTests
         var deep = new WaveSampler { Iterations = 0 };
         deep.Configure(config, new[] { 24, 8 });
         deep.SetTime(50);
-        // Uniform 4 m deep open water: swell keeps smoothstep(0, 16, 4), chop smoothstep(0, 5, 4).
+        // Uniform 4 m deep open water: swell keeps smoothstep(0, 6, 4), chop smoothstep(0, 5, 4).
         var heights = Enumerable.Repeat(-4f, 16 * 16).ToArray();
         var shallow = new WaveSampler { Iterations = 0, Floor = SeaFloor.FromHeights(heights, 16, 16, 100f, new Vector2(-800, -800)) };
         shallow.Configure(config, new[] { 24, 8 });

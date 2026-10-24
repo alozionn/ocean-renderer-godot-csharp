@@ -25,7 +25,7 @@ layout(set = 1, binding = 3, std140) uniform Shore {
 	vec4 sea_floor_rect; // xy corner, zw 1 / size; z = 0: no sea floor
 	vec4 body_rect;      // xy corner, z page size (0: no bodies), w pages per atlas row
 	vec4 calm_depth;     // shallow swell, chop, ripple depth (m), lake waves
-	vec4 contact;        // x width (m), y foam gain, z crest height for full foam (m), w unused
+	vec4 contact;        // x width (m), y foam gain, z crest height for full foam (m), w linger (0-1: slower decay near waterlines)
 	vec4 breaking;       // x breaking ratio, y gain, z samples per page side, w 1 if any shore data
 } sh;
 
@@ -81,15 +81,17 @@ vec4 shore_at(vec2 xz, out float wave_depth) {
 
 // x: foam the shore makes here this tick (0-1), from crests reaching a waterline and crests breaking over shallow ground.
 // y: how much of the open-sea (Jacobian) foam belongs here: the chop calm, so whitecaps do not form over sand.
-vec2 shore_foam(vec2 world) {
-	if (sh.breaking.w <= 0.0) return vec2(0.0, 1.0);
+// z: how much slower foam fades here (near a waterline), so a hit lingers.
+vec3 shore_foam(vec2 world) {
+	if (sh.breaking.w <= 0.0) return vec3(0.0, 1.0, 0.0);
 	float wave_depth;
 	vec4 s = shore_at(world, wave_depth);
 	float depth = s.x, distance = s.y, open = s.z, shelter = s.w;
 	vec3 full = sh.calm_depth.xyz;
 	vec3 calm = smoothstep(vec3(0.0), full, vec3(wave_depth)) * mix(sh.calm_depth.w, 1.0, open) * (1.0 - shelter * vec3(1.0, 0.8, 0.3));
 	// Open sea far from any shore and deep enough not to break: nothing more to do (most texels).
-	if (distance > sh.contact.x && depth > 8.0) return vec2(0.0, calm.y);
+	if (distance > 2.0 * sh.contact.x && depth > 8.0) return vec3(0.0, calm.y, 0.0);
+	float linger = sh.contact.w * (1.0 - smoothstep(0.0, 2.0 * sh.contact.x, distance)) * step(-0.5, distance);
 	vec3 d0 = textureLod(displacement0, world / p.patch_size.x, p.lod.x).xyz;
 	vec3 d1 = textureLod(displacement1, world / p.patch_size.y, p.lod.y).xyz;
 	vec3 d2 = textureLod(displacement2, world / p.patch_size.z, p.lod.z).xyz;
@@ -103,7 +105,7 @@ vec2 shore_foam(vec2 world) {
 	float contact = strip * crest * sh.contact.y;
 	// Breaking: water shallower than breaking_ratio x the local wave height.
 	float breaking = smoothstep(0.15, 0.6, sh.breaking.x * 2.0 * max(here, 0.0) - depth) * wet * open * sh.breaking.y;
-	return vec2(clamp(max(contact, breaking), 0.0, 1.0), calm.y);
+	return vec3(clamp(max(contact, breaking), 0.0, 1.0), calm.y, linger);
 }
 
 void main() {
@@ -116,7 +118,7 @@ void main() {
 		+ textureLod(partials1, world / p.patch_size.y, p.lod.y).xyz * p.weight.y
 		+ textureLod(partials2, world / p.patch_size.z, p.lod.z).xyz * p.weight.z;
 	float jacobian = (1.0 + s.x) * (1.0 + s.y) - s.z * s.z;
-	vec2 shore = shore_foam(world);
+	vec3 shore = shore_foam(world);
 	float injected = max(clamp((p.bias - jacobian) * p.gain, 0.0, 1.0) * shore.y, shore.x);
 
 	vec2 along = p.streak;
@@ -127,7 +129,7 @@ void main() {
 	vec2 lc = hist(pc, across) + hist(pc, -across) - 2.0 * c;
 	vec2 spread = max(c + vec2(p.k_along, 0.2 * p.k_along) * la + vec2(p.k_across, 0.2 * p.k_across) * lc, vec2(0.0));
 
-	float density = min(spread.x * exp(-p.decay * p.dt) + injected * p.inject_rate * p.dt, 1.0);
-	float fresh = min(spread.y * exp(-p.fresh_decay * p.dt) + injected * p.inject_rate * 2.0 * p.dt, density);
+	float density = min(spread.x * exp(-p.decay * (1.0 - shore.z) * p.dt) + injected * p.inject_rate * p.dt, 1.0);
+	float fresh = min(spread.y * exp(-p.fresh_decay * (1.0 - 0.5 * shore.z) * p.dt) + injected * p.inject_rate * 2.0 * p.dt, density);
 	imageStore(field_out, id, vec4(density, fresh, 0.0, 0.0));
 }
