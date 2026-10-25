@@ -10,7 +10,7 @@ config_version=5
 
 [application]
 
-config/name="AI-Ocean_blueprint-v2"
+config/name="Tech_ocean"
 config/version="1.0.0"
 config/tags=PackedStringArray("ai_made", "experiment", "tech_art")
 run/main_scene="res://demo/main.tscn"
@@ -31,7 +31,7 @@ window/vsync/vsync_mode=0
 
 [dotnet]
 
-project/assembly_name="AI-Ocean_blueprint"
+project/assembly_name="Tech_ocean"
 
 [editor_plugins]
 

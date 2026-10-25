@@ -65,7 +65,7 @@ A session may stop mid-build (usage limits, crashes) and a fresh one may continu
 - Godot 4.7, .NET 10 (`Godot.NET.Sdk/4.7.0`, `net10.0`), Forward+, `rendering_device/driver.windows="d3d12"`. Windows desktop is the target, but nothing outside `dev/` may be Windows-specific.
 - All project code is C#. The only third-party code is Calinou's Debug Menu (GDScript, MIT), used in the demo for an FPS readout.
 - Wave simulation runs in GLSL compute through the **main** `RenderingDevice`. No CPU FFT at runtime and no per-frame GPU→CPU readback (readback only in `dev/` and tests).
-- Keep the existing `project.godot` name and `dotnet/project/assembly_name="AI-Ocean_blueprint"`. The csproj must be `AI-Ocean_blueprint.csproj`.
+- Keep the existing `project.godot` name and `dotnet/project/assembly_name="Tech_ocean"`. The csproj must be `Tech_ocean.csproj`.
 
 ### Performance (non-negotiable)
 1920×1080, 3D scale 100%, vsync off, glow on, no other Godot game running, camera at the hero pose (horizon and glint in view):
@@ -111,7 +111,7 @@ Three layers. Each one uses only the public surface of the layer below, and the 
 ```
 <project>/
   project.godot                    main scene = res://demo/main.tscn; Debug Menu autoload
-  AI-Ocean_blueprint.csproj / .sln
+  Tech_ocean.csproj / .sln
   README.md, LICENSE, THIRD_PARTY_NOTICES.md
   ocean/                           THE RENDERER
     Ocean.cs                       the node: public API (section 6), lifetime, tick scheduling
@@ -191,7 +191,7 @@ Don't "correct" these from Godot 4.0–4.2 memory.
 
 ### 5.1 Project
 - `project.godot`: add `"C#"` to `config/features`; `run/main_scene="res://demo/main.tscn"`; `config/version="1.0.0"` (the Debug Menu wants it); window 1920×1080, stretch `canvas_items`/`expand`; `window/vsync/vsync_mode=0`; `anti_aliasing/quality/use_debanding=true`; autoload `DebugMenu="*res://addons/debug_menu/debug_menu.tscn"` and its plugin enabled.
-- `AI-Ocean_blueprint.csproj`: `Godot.NET.Sdk/4.7.0`, `net10.0`, `EnableDynamicLoading`, `RootNamespace` `Ocean`, `Nullable disable`, the `Compile Remove` lines from section 3. No test packages in the game project.
+- `Tech_ocean.csproj`: `Godot.NET.Sdk/4.7.0`, `net10.0`, `EnableDynamicLoading`, `RootNamespace` `Ocean`, `Nullable disable`, the `Compile Remove` lines from section 3. No test packages in the game project.
 - `.gitignore`: `.godot/`, `bin/`, `obj/`, `.scratch/`, `local.settings.json`.
 - Solution: `dotnet new sln --format sln`, add the game and the test project.
 
