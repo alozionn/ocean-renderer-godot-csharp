@@ -5,3 +5,7 @@ bin/
 obj/
 .scratch/
 local.settings.json
+
+# Local roadmap and research notes: next steps stay off GitHub
+ROADMAP.md
+docs/research/
